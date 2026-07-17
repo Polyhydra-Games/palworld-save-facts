@@ -1,0 +1,26 @@
+{
+  "properties": {
+    "worldSaveData": {
+      "value": {
+        "CharacterSaveParameterMap": {
+          "value": [
+            {
+              "key": { "PlayerUId": { "value": "player-a" } },
+              "value": { "RawData": { "value": { "object": { "SaveParameter": { "value": { "IsPlayer": { "value": true }, "Level": { "value": 23 } } } } } } }
+            },
+            {
+              "key": {},
+              "value": { "RawData": { "value": { "object": { "SaveParameter": { "value": { "IsPlayer": { "value": false } } } } } } }
+            }
+          ]
+        },
+        "GroupSaveDataMap": {
+          "value": [
+            { "key": { "value": "guild-a" }, "value": { "RawData": { "value": { "group_type": "EPalGroupType::Guild", "players": [ { "player_uid": "player-a" } ] } } } }
+          ]
+        },
+        "BaseCampSaveData": { "value": [ {}, {} ] }
+      }
+    }
+  }
+}

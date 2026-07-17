@@ -1,0 +1,11 @@
+{
+  "properties": {
+    "SaveData": {
+      "value": {
+        "TechnologyPoint": { "value": 7 },
+        "UnlockedRecipeTechnologyNames": { "value": { "values": [ { "value": "RecipeA" }, { "value": "RecipeB" } ] } },
+        "CompletedQuestArray": { "value": { "values": [ { "value": "QuestA" } ] } }
+      }
+    }
+  }
+}

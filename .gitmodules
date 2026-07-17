@@ -1,0 +1,3 @@
+[submodule "vendor/PalworldSaveTools"]
+	path = vendor/PalworldSaveTools
+	url = https://github.com/deafdudecomputers/PalworldSaveTools.git

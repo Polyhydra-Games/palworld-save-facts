@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "palworld-save-facts"
+version = "0.1.0"
+description = "Read-only GPL command-line decoder for privacy-safe Palworld save facts"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+authors = [{ name = "Polyhydra Games" }]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+build = ["pyinstaller>=6.0"]
+
+[project.scripts]
+palworld-save-facts = "palworld_save_facts.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
