@@ -1,0 +1,64 @@
+name: Release CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example v0.1.0)
+        required: true
+        type: string
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: palworld-save-facts-linux-x64
+          - os: macos-14
+            asset: palworld-save-facts-macos-arm64
+          - os: windows-latest
+            asset: palworld-save-facts-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Build executable
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install vendor/PalworldSaveTools/src/palsav/palooz
+          python -m pip install --no-deps vendor/PalworldSaveTools/src/palsav
+          python -m pip install 'orjson>=3.11.8'
+          python -m pip install '.[build]'
+          pyinstaller --onefile --name '${{ matrix.asset }}' --collect-all palsav --collect-all palooz src/palworld_save_facts/__main__.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Create checksum manifest
+        run: |
+          cd dist
+          sha256sum */* > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: dist/**
