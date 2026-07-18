@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import tempfile
+from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import zstandard
+
+from .extract import SCHEMA_V1, ExtractionError, extract_v1
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def source_manifest(snapshot: Path) -> list[dict[str, str]]:
+    """Return a deterministic manifest without following links outside the snapshot."""
+    entries: list[dict[str, str]] = []
+    for path in sorted(snapshot.rglob("*")):
+        if path.is_symlink():
+            raise ExtractionError("snapshot-symlink-unsupported")
+        if path.is_file():
+            entries.append({"path": path.relative_to(snapshot).as_posix(), "sha256": _sha256(path)})
+    return entries
+
+
+def _canonical_bytes(document: Any) -> bytes:
+    return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8") + b"\n"
+
+
+def _manifest_digest(manifest: list[dict[str, str]]) -> str:
+    return hashlib.sha256(_canonical_bytes(manifest)).hexdigest()
+
+
+def _assert_output_is_separate(snapshot: Path, output: Path) -> None:
+    try:
+        output.resolve().relative_to(snapshot.resolve())
+    except ValueError:
+        return
+    raise ExtractionError("output-directory-must-not-be-inside-input")
+
+
+def analyze(
+    snapshot: Path,
+    output: Path,
+    load: Callable[[Path], dict[str, Any]],
+    player_saves: Callable[[Path], dict[str, dict[str, Any]]],
+    observed_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Decode an immutable snapshot and atomically publish private artifacts.
+
+    No output is published until decoding succeeds and the input manifest is
+    identical before and after the read-only operation.
+    """
+    if not snapshot.is_dir():
+        raise ExtractionError("snapshot-directory-required")
+    _assert_output_is_separate(snapshot, output)
+    if output.exists():
+        raise ExtractionError("output-directory-already-exists")
+
+    before = source_manifest(snapshot)
+    level_path = snapshot / "Level.sav"
+    if not level_path.is_file():
+        level_path = snapshot / "Level.json"
+    if not level_path.is_file():
+        raise ExtractionError("Level.sav is required")
+
+    level = load(level_path)
+    players = player_saves(snapshot)
+    snapshot_document = extract_v1(level, players, observed_at or datetime.now(timezone.utc))
+    after = source_manifest(snapshot)
+    if before != after:
+        raise ExtractionError("input-tree-changed-during-decode")
+
+    raw_document = {"level": level, "players": players}
+    raw_bytes = _canonical_bytes(raw_document)
+    snapshot_bytes = _canonical_bytes(snapshot_document)
+    manifest_digest = _manifest_digest(before)
+
+    parent = output.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=parent))
+    try:
+        raw_path = staging / "raw.json.zst"
+        raw_path.write_bytes(zstandard.ZstdCompressor(level=10).compress(raw_bytes))
+        snapshot_path = staging / "snapshot.json"
+        snapshot_path.write_bytes(snapshot_bytes)
+        result = {
+            "schemaVersion": "palworld-save-decode-manifest/v1",
+            "snapshotId": manifest_digest,
+            "sourceManifest": before,
+            "inputUnchanged": True,
+            "raw": {
+                "path": "raw.json.zst",
+                "sha256": _sha256(raw_path),
+                "sizeBytes": raw_path.stat().st_size,
+                "compression": "zstd",
+            },
+            "snapshot": {
+                "path": "snapshot.json",
+                "sha256": _sha256(snapshot_path),
+                "sizeBytes": snapshot_path.stat().st_size,
+                "schemaVersion": SCHEMA_V1,
+            },
+        }
+        (staging / "result.json").write_bytes(_canonical_bytes(result))
+        os.replace(staging, output)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return result
