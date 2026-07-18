@@ -37,6 +37,9 @@ decoding, refuses output inside the input tree, and atomically publishes only
 after the input remains unchanged. The raw artifact and result manifest contain
 restricted save information; keep the whole output directory out of WebUI,
 browser, logs, public endpoints, and public CI.
+Successful stdout is a sanitized receipt containing the snapshot digest and
+output-artifact metadata. Source-relative paths and the complete source
+manifest are written only to the private `result.json`.
 
 ```sh
 palworld-save-facts analyze \

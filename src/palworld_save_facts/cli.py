@@ -73,7 +73,14 @@ def _analyze(argv: list[str]) -> int:
     except Exception:
         print("palworld-save-facts: analysis-failed", file=sys.stderr)
         return 2
-    json.dump(result, sys.stdout, separators=(",", ":"), sort_keys=True)
+    public_result = {
+        "schemaVersion": result["schemaVersion"],
+        "snapshotId": result["snapshotId"],
+        "inputUnchanged": result["inputUnchanged"],
+        "raw": result["raw"],
+        "snapshot": result["snapshot"],
+    }
+    json.dump(public_result, sys.stdout, separators=(",", ":"), sort_keys=True)
     sys.stdout.write("\n")
     return 0
 
