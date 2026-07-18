@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 SCHEMA_V1 = "palworld-save-facts/v1"
+SCHEMA_V2 = "palworld-save-facts/v2"
 
 
 class ExtractionError(ValueError):
@@ -25,6 +26,21 @@ def _property_values(value: Any) -> list[str]:
         return []
     values = [_value(item) for item in raw]
     return sorted({str(item) for item in values if item not in (None, "")})
+
+
+def _field(data: dict[str, Any], key: str, *, numeric: bool = False) -> dict[str, Any]:
+    if key not in data:
+        return {"state": "absent", "value": None}
+    value = _value(data[key])
+    if value is None:
+        return {"state": "unknown", "value": None}
+    return {"state": "present", "value": int(value) if numeric else str(value)}
+
+
+def _list_field(data: dict[str, Any], key: str) -> dict[str, Any]:
+    if key not in data:
+        return {"state": "absent", "values": []}
+    return {"state": "present", "values": _property_values(data[key])}
 
 
 def _world(decoded: dict[str, Any]) -> dict[str, Any]:
@@ -59,6 +75,38 @@ def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, str]]:
             if native_id:
                 memberships[native_id] = guild_id
     return guilds, memberships
+
+
+def extract_v2_pals(level: dict[str, Any], observed_at: datetime) -> list[dict[str, Any]]:
+    """Project Pal character records without inferring capture or trade causes.
+
+    ``firstObservedAt`` is this observation only; retained-history aggregation
+    is intentionally outside this single-snapshot extractor.
+    """
+    pals: list[dict[str, Any]] = []
+    for entry in _world(level).get("CharacterSaveParameterMap", {}).get("value", []):
+        data = _character_data(entry)
+        if _value(data.get("IsPlayer"), False):
+            continue
+        native_id = str(_value(entry.get("key", {}).get("InstanceId"), ""))
+        if not native_id:
+            continue
+        pals.append({
+            "snapshotLocalId": f"pal:{native_id}",
+            "nativeId": {"state": "present", "value": native_id},
+            "species": _field(data, "CharacterID"), "nickname": _field(data, "NickName"),
+            "owner": _field(data, "OwnerPlayerUId"), "ownershipObservedAt": {"state": "unknown", "value": None},
+            "firstObservedAt": {"state": "present", "value": observed_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")},
+            "level": _field(data, "Level", numeric=True), "experience": _field(data, "Exp", numeric=True),
+            "rank": _field(data, "Rank", numeric=True), "gender": _field(data, "Gender"),
+            "traits": _list_field(data, "TalentRank"), "ivStats": {}, "souls": _field(data, "Rank", numeric=True),
+            "passiveSkills": _list_field(data, "PassiveSkillList"), "activeSkills": _list_field(data, "EquipWaza"),
+            "vitals": {"health": _field(data, "HP", numeric=True), "sanity": _field(data, "SanityValue", numeric=True), "hunger": _field(data, "Hunger", numeric=True), "friendship": _field(data, "Friendship", numeric=True)},
+            "workSuitability": _list_field(data, "WorkSuitability"), "container": _field(data, "SlotID"),
+            "slot": {"state": "unknown", "value": None}, "party": _field(data, "PartyID"),
+            "palbox": _field(data, "PalBoxID"), "base": _field(data, "BaseCampId"), "guild": _field(data, "GroupId"),
+        })
+    return sorted(pals, key=lambda pal: pal["snapshotLocalId"])
 
 
 def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], observed_at: datetime) -> dict[str, Any]:

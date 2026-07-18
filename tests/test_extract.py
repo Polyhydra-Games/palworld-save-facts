@@ -6,7 +6,7 @@ from pathlib import Path
 import zstandard
 
 from palworld_save_facts.cli import main
-from palworld_save_facts.extract import SCHEMA_V1, extract_v1
+from palworld_save_facts.extract import SCHEMA_V1, extract_v1, extract_v2_pals
 
 
 def property(value):
@@ -53,6 +53,17 @@ def test_cli_writes_one_json_document_from_a_decoded_fixture(capsys):
     assert output.err == ""
     assert document["schemaVersion"] == SCHEMA_V1
     assert document["players"][0]["nativeId"] == "player-a"
+
+
+def test_v2_pal_projection_is_deterministic_and_does_not_model_causes():
+    level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [
+        {"key": {"InstanceId": property("pal-b")}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {"IsPlayer": property(False), "CharacterID": property("SheepBall"), "Level": property(4)}}}}}}},
+        {"key": {"InstanceId": property("pal-a")}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {"IsPlayer": property(False), "CharacterID": property("Lamball"), "Level": property(3)}}}}}}},
+    ]}}}}}
+    pals = extract_v2_pals(level, datetime(2026, 7, 18, tzinfo=timezone.utc))
+    assert [pal["snapshotLocalId"] for pal in pals] == ["pal:pal-a", "pal:pal-b"]
+    assert pals[0]["species"] == {"state": "present", "value": "Lamball"}
+    assert "captureCause" not in pals[0]
 
 
 def _tree_digest(root: Path) -> str:
