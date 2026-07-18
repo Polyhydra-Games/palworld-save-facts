@@ -47,6 +47,22 @@ palworld-save-facts analyze \
   --output /srv/palworld/private-analysis/2026-07-17T20-00-00Z
 ```
 
+## Private corpus qualification
+
+Approved commits may be validated only on the controlled host with an
+operator-owned corpus. The corpus is outside this repository and is never
+mounted in public CI or exposed to untrusted pull-request code. Run:
+
+```sh
+python scripts/private_validate.py --corpus /private/palworld-corpus --report /private/reports/qualification.json
+```
+
+The corpus has the private family directories `current`, `adjacent`,
+`historical`, `incomplete`, `corrupt`, `missing-player`, and `future`. The
+report remains private; stdout is only `pass` or `fail` and is the sole value
+permitted in a public attestation. Promote only an approved, exact commit to
+this procedure and never attach the corpus to a public GitHub runner.
+
 ## Development
 
 The vendored submodule is pinned to the reviewed `palsav-flex` 0.2.0 decoder,
