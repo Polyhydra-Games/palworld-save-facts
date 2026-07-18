@@ -6,6 +6,7 @@ from pathlib import Path
 import zstandard
 
 from palworld_save_facts.cli import main
+from palworld_save_facts.canonical import adjacent_summary, canonical_bytes, snapshot_id
 from palworld_save_facts.extract import SCHEMA_V1, extract_v1, extract_v2_pals
 
 
@@ -64,6 +65,14 @@ def test_v2_pal_projection_is_deterministic_and_does_not_model_causes():
     assert [pal["snapshotLocalId"] for pal in pals] == ["pal:pal-a", "pal:pal-b"]
     assert pals[0]["species"] == {"state": "present", "value": "Lamball"}
     assert "captureCause" not in pals[0]
+
+
+def test_canonicalization_and_adjacent_summary_are_deterministic_and_cause_neutral():
+    left = {"pals": [{"snapshotLocalId": "pal-b", "rank": 1}, {"snapshotLocalId": "pal-a", "rank": 1}]}
+    right = {"pals": [{"rank": 2, "snapshotLocalId": "pal-a"}, {"snapshotLocalId": "pal-c", "rank": 1}]}
+    assert canonical_bytes(left) == canonical_bytes({"pals": list(reversed(left["pals"]))})
+    assert snapshot_id([{"sha256": "b", "path": "b"}, {"path": "a", "sha256": "a"}]) == snapshot_id([{"path": "a", "sha256": "a"}, {"sha256": "b", "path": "b"}])
+    assert adjacent_summary(left, right)["pals"] == {"added": 1, "removed": 1, "changed": 1}
 
 
 def _tree_digest(root: Path) -> str:
