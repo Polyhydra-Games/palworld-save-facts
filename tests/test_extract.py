@@ -7,7 +7,7 @@ import zstandard
 
 from palworld_save_facts.cli import main
 from palworld_save_facts.canonical import adjacent_summary, canonical_bytes, snapshot_id
-from palworld_save_facts.extract import SCHEMA_V1, extract_v1, extract_v2_pals, extract_v2_players
+from palworld_save_facts.extract import SCHEMA_V1, extract_v1, extract_v2_pals, extract_v2_players, extract_v2_world
 
 
 def property(value):
@@ -83,6 +83,13 @@ def test_v2_players_are_ordered_and_missing_saves_are_redacted_warnings():
     players, warnings = extract_v2_players(level, {})
     assert [player["snapshotLocalId"] for player in players] == ["player:player-a", "player:player-b"]
     assert warnings == ["player-save-missing"]
+
+
+def test_v2_world_marks_absent_malformed_and_unsupported_families_without_raw_objects():
+    level = {"properties": {"worldSaveData": {"value": {"BaseCampSaveData": {"value": [{}]}, "GroupSaveDataMap": {"value": "bad"}}}}}
+    world, warnings = extract_v2_world(level)
+    assert world["settlements"] == [{"snapshotLocalId": "settlements:0", "references": [], "state": "present"}]
+    assert "guilds-malformed" in warnings and "facilities-unsupported" in warnings
 
 
 def _tree_digest(root: Path) -> str:
