@@ -62,14 +62,26 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
-      - name: Flatten release assets and create checksum manifest
+          merge-multiple: true
+      - name: Verify release assets and create checksum manifest
         run: |
-          find dist -mindepth 2 -type f -exec mv -t dist {} +
-          find dist -mindepth 1 -type d -empty -delete
           cd dist
-          sha256sum palworld-save-facts-* > SHA256SUMS.txt
+          assets=(
+            palworld-save-facts-linux-x64
+            palworld-save-facts-macos-arm64
+            palworld-save-facts-windows-x64.exe
+          )
+          for asset in "${assets[@]}"; do
+            test -f "$asset"
+          done
+          test "$(find . -maxdepth 1 -type f -name 'palworld-save-facts-*' | wc -l)" -eq "${#assets[@]}"
+          sha256sum "${assets[@]}" > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: true
-          files: dist/*
+          files: |
+            dist/palworld-save-facts-linux-x64
+            dist/palworld-save-facts-macos-arm64
+            dist/palworld-save-facts-windows-x64.exe
+            dist/SHA256SUMS.txt
