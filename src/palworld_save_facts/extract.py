@@ -109,6 +109,46 @@ def extract_v2_pals(level: dict[str, Any], observed_at: datetime) -> list[dict[s
     return sorted(pals, key=lambda pal: pal["snapshotLocalId"])
 
 
+def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Project players with deterministic references and non-sensitive warnings."""
+    world = _world(level)
+    guild_count, memberships = _guild_memberships(world)
+    del guild_count
+    players: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    characters = world.get("CharacterSaveParameterMap", {}).get("value", [])
+    if not isinstance(characters, list):
+        raise ExtractionError("character-map-invalid")
+    for entry in characters:
+        data = _character_data(entry)
+        if not _value(data.get("IsPlayer"), False):
+            continue
+        native_id = _player_id(entry)
+        if not native_id:
+            raise ExtractionError("player-id-missing")
+        save = player_saves.get(native_id.casefold())
+        if save is None:
+            warnings.append("player-save-missing")
+            save_data: dict[str, Any] = {}
+        else:
+            save_data = _save_data(save)
+        players.append({
+            "snapshotLocalId": f"player:{native_id}",
+            "nativeId": {"state": "present", "value": native_id},
+            "displayName": _field(data, "NickName"),
+            "guild": {"state": "present", "value": memberships[native_id]} if native_id in memberships else {"state": "absent", "value": None},
+            "level": _field(data, "Level", numeric=True), "experience": _field(data, "Exp", numeric=True),
+            "points": _field(save_data, "TechnologyPoint", numeric=True),
+            "technology": _list_field(save_data, "UnlockedTechnologyNames"),
+            "recipes": _list_field(save_data, "UnlockedRecipeTechnologyNames"),
+            "quests": _list_field(save_data, "CompletedQuestArray"),
+            "lastOnline": {"state": "unknown", "value": None},
+            "inventoryReferences": [], "equipmentReferences": [],
+            "position": {"state": "absent", "value": None}, "state": _field(data, "State"),
+        })
+    return sorted(players, key=lambda player: player["snapshotLocalId"]), sorted(set(warnings))
+
+
 def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], observed_at: datetime) -> dict[str, Any]:
     world = _world(level)
     characters = world.get("CharacterSaveParameterMap", {}).get("value", [])
