@@ -28,6 +28,22 @@ enabled, its matching `Players/<native-id>.sav` files must also be present.
 Failures are written to standard error; stdout is reserved for the single JSON
 document so a sidecar can consume it safely.
 
+## Private analysis artifacts
+
+For operator-only processing, `analyze` creates a new output directory with a
+lossless decoder-native `raw.json.zst`, the existing normalized v1
+`snapshot.json`, and `result.json`. It hashes every input file before and after
+decoding, refuses output inside the input tree, and atomically publishes only
+after the input remains unchanged. The raw artifact and result manifest contain
+restricted save information; keep the whole output directory out of WebUI,
+browser, logs, public endpoints, and public CI.
+
+```sh
+palworld-save-facts analyze \
+  --input /srv/palworld/snapshots/2026-07-17T20-00-00Z \
+  --output /srv/palworld/private-analysis/2026-07-17T20-00-00Z
+```
+
 ## Development
 
 The vendored submodule is pinned to the reviewed `palsav-flex` 0.2.0 decoder,
