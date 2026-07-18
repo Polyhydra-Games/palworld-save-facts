@@ -70,11 +70,26 @@ def test_analyze_writes_private_artifacts_atomically_without_changing_input(tmp_
 
     assert main(["analyze", "--input", str(fixture), "--output", str(output)]) == 0
 
-    result = json.loads(capsys.readouterr().out)
+    stdout = capsys.readouterr().out
+    result = json.loads(stdout)
     assert _tree_digest(fixture) == before
     assert result["inputUnchanged"] is True
     assert result["raw"]["compression"] == "zstd"
+    assert "sourceManifest" not in result
+    assert "Players/" not in stdout
+    assert "player-a" not in stdout
     assert set(path.name for path in output.iterdir()) == {"raw.json.zst", "snapshot.json", "result.json"}
+    private_result = json.loads((output / "result.json").read_text())
+    assert private_result["sourceManifest"] == [
+        {
+            "path": "Level.json",
+            "sha256": hashlib.sha256((fixture / "Level.json").read_bytes()).hexdigest(),
+        },
+        {
+            "path": "Players/player-a.json",
+            "sha256": hashlib.sha256((fixture / "Players/player-a.json").read_bytes()).hexdigest(),
+        },
+    ]
     raw = json.loads(zstandard.ZstdDecompressor().decompress((output / "raw.json.zst").read_bytes()))
     snapshot = json.loads((output / "snapshot.json").read_text())
     assert raw["level"]["properties"]["worldSaveData"]
