@@ -27,3 +27,45 @@ jobs:
           python -m pip install -e '.[test]'
       - name: Run tests
         run: pytest -q
+  executable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: palworld-save-facts-linux-x64
+            archflags: ""
+            cxxflags: ""
+          - os: macos-14
+            asset: palworld-save-facts-macos-arm64
+            archflags: "-arch arm64"
+            cxxflags: "-std=c++11"
+          - os: windows-latest
+            asset: palworld-save-facts-windows-x64.exe
+            archflags: ""
+            cxxflags: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Build executable
+        shell: bash
+        env:
+          ARCHFLAGS: ${{ matrix.archflags }}
+          CXXFLAGS: ${{ matrix.cxxflags }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install vendor/PalworldSaveTools/src/palsav/palooz
+          python -m pip install --no-deps vendor/PalworldSaveTools/src/palsav
+          python -m pip install 'orjson>=3.11.8'
+          python -m pip install '.[build]'
+          pyinstaller --onefile --name '${{ matrix.asset }}' --collect-all palsav --collect-all palooz src/palworld_save_facts/__main__.py
+      - name: Smoke executable
+        shell: bash
+        run: |
+          executable="dist/${{ matrix.asset }}"
+          "$executable" --help
