@@ -7,7 +7,7 @@ import zstandard
 
 from palworld_save_facts.cli import main
 from palworld_save_facts.canonical import adjacent_summary, canonical_bytes, snapshot_id
-from palworld_save_facts.extract import SCHEMA_V1, extract_v1, extract_v2_pals
+from palworld_save_facts.extract import SCHEMA_V1, extract_v1, extract_v2_pals, extract_v2_players
 
 
 def property(value):
@@ -73,6 +73,16 @@ def test_canonicalization_and_adjacent_summary_are_deterministic_and_cause_neutr
     assert canonical_bytes(left) == canonical_bytes({"pals": list(reversed(left["pals"]))})
     assert snapshot_id([{"sha256": "b", "path": "b"}, {"path": "a", "sha256": "a"}]) == snapshot_id([{"path": "a", "sha256": "a"}, {"sha256": "b", "path": "b"}])
     assert adjacent_summary(left, right)["pals"] == {"added": 1, "removed": 1, "changed": 1}
+
+
+def test_v2_players_are_ordered_and_missing_saves_are_redacted_warnings():
+    level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [
+        {"key": {"PlayerUId": property("player-b")}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {"IsPlayer": property(True), "Level": property(2)}}}}}}},
+        {"key": {"PlayerUId": property("player-a")}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {"IsPlayer": property(True), "Level": property(1)}}}}}}},
+    ]}, "GroupSaveDataMap": {"value": []}}}}}
+    players, warnings = extract_v2_players(level, {})
+    assert [player["snapshotLocalId"] for player in players] == ["player:player-a", "player:player-b"]
+    assert warnings == ["player-save-missing"]
 
 
 def _tree_digest(root: Path) -> str:
