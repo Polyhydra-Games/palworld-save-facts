@@ -149,6 +149,32 @@ def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, 
     return sorted(players, key=lambda player: player["snapshotLocalId"]), sorted(set(warnings))
 
 
+WORLD_FAMILIES = ("guilds", "settlements", "workers", "facilities", "structures", "containers", "itemSlots", "equipment", "mapObjects", "workState", "dungeons", "camps", "invaders", "oilRigs", "supplySystems")
+
+
+def extract_v2_world(level: dict[str, Any]) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    """Build closed world-family projections; unknown native shapes stay raw-only."""
+    world = _world(level)
+    result: dict[str, list[dict[str, Any]]] = {family: [] for family in WORLD_FAMILIES}
+    warnings: list[str] = []
+    source_keys = {"guilds": "GroupSaveDataMap", "settlements": "BaseCampSaveData", "mapObjects": "MapObjectSaveData"}
+    for family, source_key in source_keys.items():
+        raw = world.get(source_key)
+        if raw is None:
+            warnings.append(f"{family}-absent")
+            continue
+        values = raw.get("value", []) if isinstance(raw, dict) else []
+        if not isinstance(values, list):
+            warnings.append(f"{family}-malformed")
+            continue
+        for index, value in enumerate(values):
+            result[family].append({"snapshotLocalId": f"{family}:{index}", "references": [], "state": "present"})
+    for family in WORLD_FAMILIES:
+        if family not in source_keys:
+            warnings.append(f"{family}-unsupported")
+    return result, sorted(warnings)
+
+
 def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], observed_at: datetime) -> dict[str, Any]:
     world = _world(level)
     characters = world.get("CharacterSaveParameterMap", {}).get("value", [])
