@@ -43,12 +43,12 @@ def _list_field(data: dict[str, Any], key: str) -> dict[str, Any]:
     return {"state": "present", "values": _property_values(data[key])}
 
 
-def _references(data: dict[str, Any], key: str, prefix: str) -> list[str]:
+def _references(data: dict[str, Any], key: str, prefix: str) -> list[dict[str, str]]:
     """Map decoder scalar/list IDs to deterministic snapshot-local references."""
     if key not in data:
         return []
     values = _reference_values(data[key])
-    return sorted({f"{prefix}:{item}" for item in values if item not in (None, "")})
+    return [{"snapshotLocalId": f"{prefix}:{item}"} for item in values if item not in (None, "")]
 
 
 def _reference_values(value: Any) -> list[str]:
@@ -78,6 +78,20 @@ def _reference_values(value: Any) -> list[str]:
     return sorted({str(item) for item in (unwrap(item) for item in items) if item not in (None, "")})
 
 
+def _timestamp_field(data: dict[str, Any], key: str) -> dict[str, Any]:
+    """Normalize decoder epoch values to the v2 RFC 3339 timestamp contract."""
+    if key not in data:
+        return {"state": "absent", "value": None}
+    value = _value(data[key])
+    if value is None:
+        return {"state": "unknown", "value": None}
+    try:
+        timestamp = datetime.fromtimestamp(int(value), timezone.utc)
+    except (OverflowError, OSError, TypeError, ValueError):
+        return {"state": "unknown", "value": None}
+    return {"state": "present", "value": timestamp.isoformat().replace("+00:00", "Z")}
+
+
 def _world(decoded: dict[str, Any]) -> dict[str, Any]:
     return decoded.get("properties", {}).get("worldSaveData", {}).get("value", {})
 
@@ -94,8 +108,8 @@ def _player_id(entry: dict[str, Any]) -> str:
     return str(_value(entry.get("key", {}).get("PlayerUId"), ""))
 
 
-def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, tuple[str, dict[str, Any], dict[str, Any]]]]:
-    memberships: dict[str, tuple[str, dict[str, Any], dict[str, Any]]] = {}
+def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, tuple[str, dict[str, Any]]]]:
+    memberships: dict[str, tuple[str, dict[str, Any]]] = {}
     guilds = 0
     for entry in world.get("GroupSaveDataMap", {}).get("value", []):
         raw = entry.get("value", {}).get("RawData", {}).get("value", {})
@@ -113,8 +127,7 @@ def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, tuple[str,
                     player_info = {}
                 memberships[native_id] = (
                     guild_id,
-                    _field(player, "player_role"),
-                    _field(player_info, "last_online_real_time", numeric=True),
+                    _timestamp_field(player_info, "last_online_real_time"),
                 )
     return guilds, memberships
 
@@ -174,14 +187,13 @@ def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, 
             save_data: dict[str, Any] = {}
         else:
             save_data = _save_data(save)
-        character_last_online = _field(data, "LastOnlineTime", numeric=True)
-        roster_last_online = memberships[native_id][2] if native_id in memberships else {"state": "absent", "value": None}
+        character_last_online = _timestamp_field(data, "LastOnlineTime")
+        roster_last_online = memberships[native_id][1] if native_id in memberships else {"state": "absent", "value": None}
         players.append({
             "snapshotLocalId": f"player:{native_id}",
             "nativeId": {"state": "present", "value": native_id},
             "displayName": _field(data, "NickName"),
             "guild": {"state": "present", "value": f"guild:{memberships[native_id][0]}"} if native_id in memberships else {"state": "absent", "value": None},
-            "guildRole": memberships[native_id][1] if native_id in memberships else {"state": "absent", "value": None},
             "level": _field(data, "Level", numeric=True), "experience": _field(data, "Exp", numeric=True),
             "points": _field(save_data, "TechnologyPoint", numeric=True),
             "technology": _list_field(save_data, "UnlockedTechnologyNames"),
