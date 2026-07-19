@@ -81,13 +81,15 @@ def test_v2_pals_normalize_relationships_ivs_and_duplicate_instances_determinist
     )
     duplicate_one = pal("duplicate", 2)
     duplicate_two = pal("duplicate", 1)
-    level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [duplicate_one, rich, duplicate_two]}}}}}
-    reversed_level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [duplicate_two, rich, duplicate_one]}}}}}
+    suffix_lookalike = pal("duplicate:duplicate:2", 3)
+    level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [duplicate_one, rich, suffix_lookalike, duplicate_two]}}}}}
+    reversed_level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [duplicate_two, suffix_lookalike, rich, duplicate_one]}}}}}
 
     observed = datetime(2026, 7, 18, tzinfo=timezone.utc)
     pals = extract_v2_pals(level, observed)
     assert pals == extract_v2_pals(reversed_level, observed)
-    assert [pal["snapshotLocalId"] for pal in pals] == ["pal:duplicate", "pal:duplicate:2", "pal:pal-a"]
+    assert [pal["snapshotLocalId"] for pal in pals] == ["pal:duplicate", "pal:duplicate:duplicate:2:x", "pal:duplicate:duplicate:2", "pal:pal-a"]
+    assert len({pal["snapshotLocalId"] for pal in pals}) == len(pals)
     rich_pal = pals[-1]
     assert rich_pal["owner"] == {"state": "present", "value": "player:player-a"}
     assert rich_pal["container"] == {"state": "present", "value": "container:container-a"}
