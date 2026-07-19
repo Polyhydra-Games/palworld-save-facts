@@ -104,6 +104,14 @@ def test_v2_snapshot_assembly_does_not_change_v1_output_contract():
     assert "nativeId" not in legacy["players"][0] or legacy["players"][0]["nativeId"] == "player-a"
 
 
+def test_v1_v2_compatibility_documentation_keeps_pal_mapping_and_removal_boundary_explicit():
+    document = (Path(__file__).parents[1] / "docs" / "v1-v2-compatibility.md").read_text(encoding="utf-8")
+    assert "`palCount`" in document
+    assert "`domainCounts.pals`" in document
+    assert "Decoder-native" in document
+    assert "separately approved removal" in document
+
+
 def _tree_digest(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(path for path in root.rglob("*") if path.is_file()):
