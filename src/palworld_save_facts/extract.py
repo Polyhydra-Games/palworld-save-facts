@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Any
 
 SCHEMA_V1 = "palworld-save-facts/v1"
@@ -35,6 +36,26 @@ def _field(data: dict[str, Any], key: str, *, numeric: bool = False) -> dict[str
     if value is None:
         return {"state": "unknown", "value": None}
     return {"state": "present", "value": int(value) if numeric else str(value)}
+
+
+def _first_field(data: dict[str, Any], *keys: str, numeric: bool = False) -> dict[str, Any]:
+    """Return the first decoder field known for a normalized fact.
+
+    Decoder versions have renamed a few native properties.  A missing value is
+    still represented explicitly rather than being guessed from a related fact.
+    """
+    for key in keys:
+        if key in data:
+            return _field(data, key, numeric=numeric)
+    return {"state": "absent", "value": None}
+
+
+def _reference_field(data: dict[str, Any], key: str, prefix: str) -> dict[str, Any]:
+    """Convert a native relationship ID to a snapshot-local typed reference."""
+    field = _field(data, key)
+    if field["state"] != "present":
+        return field
+    return {"state": "present", "value": f"{prefix}:{field['value']}"}
 
 
 def _list_field(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -139,7 +160,7 @@ def extract_v2_pals(level: dict[str, Any], observed_at: datetime) -> list[dict[s
     ``firstObservedAt`` is this observation only; retained-history aggregation
     is intentionally outside this single-snapshot extractor.
     """
-    pals: list[dict[str, Any]] = []
+    candidates: list[tuple[str, str, dict[str, Any]]] = []
     for entry in _world(level).get("CharacterSaveParameterMap", {}).get("value", []):
         data = _character_data(entry)
         if _value(data.get("IsPlayer"), False):
@@ -147,22 +168,44 @@ def extract_v2_pals(level: dict[str, Any], observed_at: datetime) -> list[dict[s
         native_id = str(_value(entry.get("key", {}).get("InstanceId"), ""))
         if not native_id:
             continue
-        pals.append({
-            "snapshotLocalId": f"pal:{native_id}",
+        pal = {
             "nativeId": {"state": "present", "value": native_id},
             "species": _field(data, "CharacterID"), "nickname": _field(data, "NickName"),
-            "owner": _field(data, "OwnerPlayerUId"), "ownershipObservedAt": {"state": "unknown", "value": None},
+            "owner": _reference_field(data, "OwnerPlayerUId", "player"),
+            "ownershipObservedAt": {"state": "unknown", "value": None},
             "firstObservedAt": {"state": "present", "value": observed_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")},
             "level": _field(data, "Level", numeric=True), "experience": _field(data, "Exp", numeric=True),
             "rank": _field(data, "Rank", numeric=True), "gender": _field(data, "Gender"),
-            "traits": _list_field(data, "TalentRank"), "ivStats": {}, "souls": _field(data, "Rank", numeric=True),
+            "traits": _list_field(data, "TalentRank"),
+            "ivStats": {
+                "health": _first_field(data, "Talent_HP", "TalentHp", numeric=True),
+                "melee": _first_field(data, "Talent_Melee", "TalentMelee", numeric=True),
+                "ranged": _first_field(data, "Talent_Shot", "TalentShot", numeric=True),
+                "defense": _first_field(data, "Talent_Defense", "TalentDefense", numeric=True),
+            },
+            "souls": _first_field(data, "SoulRank", "SoulRankValue", numeric=True),
             "passiveSkills": _list_field(data, "PassiveSkillList"), "activeSkills": _list_field(data, "EquipWaza"),
             "vitals": {"health": _field(data, "HP", numeric=True), "sanity": _field(data, "SanityValue", numeric=True), "hunger": _field(data, "Hunger", numeric=True), "friendship": _field(data, "Friendship", numeric=True)},
-            "workSuitability": _list_field(data, "WorkSuitability"), "container": _field(data, "SlotID"),
-            "slot": {"state": "unknown", "value": None}, "party": _field(data, "PartyID"),
-            "palbox": _field(data, "PalBoxID"), "base": _field(data, "BaseCampId"), "guild": _field(data, "GroupId"),
-        })
-    return sorted(pals, key=lambda pal: pal["snapshotLocalId"])
+            "workSuitability": _list_field(data, "WorkSuitability"),
+            "container": _reference_field(data, "SlotID", "container"),
+            "slot": _first_field(data, "SlotIndex", "SlotIDIndex", numeric=True),
+            "party": _reference_field(data, "PartyID", "party"),
+            "palbox": _reference_field(data, "PalBoxID", "palbox"),
+            "base": _reference_field(data, "BaseCampId", "base"),
+            "guild": _reference_field(data, "GroupId", "guild"),
+        }
+        # Native instance IDs are expected to be unique.  When a damaged or
+        # future-format save repeats one, a canonical record representation
+        # gives the duplicate a deterministic, collision-free local ID.
+        candidates.append((native_id, json.dumps(pal, sort_keys=True, separators=(",", ":")), pal))
+
+    pals: list[dict[str, Any]] = []
+    occurrence: dict[str, int] = {}
+    for native_id, _, pal in sorted(candidates, key=lambda candidate: (candidate[0], candidate[1])):
+        occurrence[native_id] = occurrence.get(native_id, 0) + 1
+        suffix = "" if occurrence[native_id] == 1 else f":{occurrence[native_id]}"
+        pals.append({"snapshotLocalId": f"pal:{native_id}{suffix}", **pal})
+    return pals
 
 
 def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:

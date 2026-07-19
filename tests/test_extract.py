@@ -70,6 +70,54 @@ def test_v2_pal_projection_is_deterministic_and_does_not_model_causes():
     assert "captureCause" not in pals[0]
 
 
+def test_v2_pals_normalize_relationships_ivs_and_duplicate_instances_deterministically():
+    def pal(instance_id, level, **properties):
+        values = {"IsPlayer": property(False), "CharacterID": property("UnknownFuturePal"), "Level": property(level), **properties}
+        return {"key": {"InstanceId": property(instance_id)}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": values}}}}}}
+
+    rich = pal(
+        "pal-a", 4,
+        OwnerPlayerUId=property("player-a"), SlotID=property("container-a"), SlotIndex=property(2),
+        PartyID=property("party-a"), PalBoxID=property("box-a"), BaseCampId=property("base-a"), GroupId=property("guild-a"),
+        Talent_HP=property(31), Talent_Melee=property(22), Talent_Shot=property(17), Talent_Defense=property(14),
+        SoulRank=property(3), Gender=property("UnknownFutureGender"),
+    )
+    duplicate_one = pal("duplicate", 2)
+    duplicate_two = pal("duplicate", 1)
+    level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [duplicate_one, rich, duplicate_two]}}}}}
+    reversed_level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [duplicate_two, rich, duplicate_one]}}}}}
+
+    observed = datetime(2026, 7, 18, tzinfo=timezone.utc)
+    pals = extract_v2_pals(level, observed)
+    assert pals == extract_v2_pals(reversed_level, observed)
+    assert [pal["snapshotLocalId"] for pal in pals] == ["pal:duplicate", "pal:duplicate:2", "pal:pal-a"]
+    rich_pal = pals[-1]
+    assert rich_pal["owner"] == {"state": "present", "value": "player:player-a"}
+    assert rich_pal["container"] == {"state": "present", "value": "container:container-a"}
+    assert rich_pal["slot"] == {"state": "present", "value": 2}
+    assert rich_pal["party"] == {"state": "present", "value": "party:party-a"}
+    assert rich_pal["palbox"] == {"state": "present", "value": "palbox:box-a"}
+    assert rich_pal["base"] == {"state": "present", "value": "base:base-a"}
+    assert rich_pal["guild"] == {"state": "present", "value": "guild:guild-a"}
+    assert rich_pal["ivStats"] == {
+        "health": {"state": "present", "value": 31}, "melee": {"state": "present", "value": 22},
+        "ranged": {"state": "present", "value": 17}, "defense": {"state": "present", "value": 14},
+    }
+    assert rich_pal["souls"] == {"state": "present", "value": 3}
+    assert rich_pal["gender"] == {"state": "present", "value": "UnknownFutureGender"}
+
+
+def test_v2_pals_keep_missing_optional_facts_explicit_without_using_rank_as_souls():
+    level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [
+        {"key": {"InstanceId": property("pal-a")}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {
+            "IsPlayer": property(False), "Rank": property(4)}}}}}}},
+    ]}}}}}
+    pal = extract_v2_pals(level, datetime(2026, 7, 18, tzinfo=timezone.utc))[0]
+    assert pal["rank"] == {"state": "present", "value": 4}
+    assert pal["souls"] == {"state": "absent", "value": None}
+    assert pal["ivStats"]["health"] == {"state": "absent", "value": None}
+
+
 def test_canonicalization_and_adjacent_summary_are_deterministic_and_cause_neutral():
     left = {"pals": [{"snapshotLocalId": "pal-b", "rank": 1}, {"snapshotLocalId": "pal-a", "rank": 1}]}
     right = {"pals": [{"rank": 2, "snapshotLocalId": "pal-a"}, {"snapshotLocalId": "pal-c", "rank": 1}]}
