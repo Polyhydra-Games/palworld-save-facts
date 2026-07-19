@@ -80,6 +80,16 @@ def test_canonical_bytes_normalizes_decoder_native_scalar_types():
     assert encoded == b'{"bytes":"01ff","date":"2026-07-19T00:00:00+00:00","uuid":"41b3cd76-0000-0000-0000-000000000000"}\n'
 
 
+def test_canonical_bytes_normalizes_palsav_uuid_type_without_importing_decoder():
+    decoder_uuid = type(
+        "UUID",
+        (),
+        {"__module__": "palsav.archive", "__str__": lambda self: "41b3cd76-0000-0000-0000-000000000000"},
+    )()
+
+    assert _canonical_bytes({"uuid": decoder_uuid}) == b'{"uuid":"41b3cd76-0000-0000-0000-000000000000"}\n'
+
+
 def test_player_uuid_lookup_accepts_hyphenated_decoded_key_and_filename():
     level = {
         "properties": {"worldSaveData": {"value": {
