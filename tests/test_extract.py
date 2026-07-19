@@ -170,6 +170,22 @@ def test_v2_players_are_ordered_and_missing_saves_are_redacted_warnings():
     assert warnings == ["player-save-missing"]
 
 
+def test_v2_player_uuid_lookup_accepts_hyphenated_decoded_key_and_filename():
+    level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [
+        {"key": {"PlayerUId": property("41b3cd76-0000-0000-0000-000000000000")},
+         "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {
+             "IsPlayer": property(True), "Level": property(9)}}}}}}},
+    ]}, "GroupSaveDataMap": {"value": []}}}}}
+    saves = {"41B3CD76000000000000000000000000": {"properties": {"SaveData": {"value": {
+        "TechnologyPoint": property(3),
+    }}}}}
+
+    players, warnings = extract_v2_players(level, saves)
+
+    assert warnings == []
+    assert players[0]["points"] == {"state": "present", "value": 3}
+
+
 def test_v2_players_project_guild_roles_last_online_and_container_references():
     player_data = {"IsPlayer": property(True)}
     player_entry = {"key": {"PlayerUId": property("player-a")}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": player_data}}}}}}
