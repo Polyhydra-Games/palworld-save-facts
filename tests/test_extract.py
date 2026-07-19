@@ -108,10 +108,10 @@ def test_v2_players_project_guild_roles_last_online_and_container_references():
 
     assert warnings == []
     assert players[0]["guild"] == {"state": "present", "value": "guild:guild-a"}
-    assert players[0]["guildRole"] == {"state": "present", "value": "Admin"}
-    assert players[0]["lastOnline"] == {"state": "present", "value": 1234}
-    assert players[0]["inventoryReferences"] == ["container:bag-a", "container:bag-b"]
-    assert players[0]["equipmentReferences"] == ["equipment:equip-a"]
+    assert "guildRole" not in players[0]
+    assert players[0]["lastOnline"] == {"state": "present", "value": "1970-01-01T00:20:34Z"}
+    assert players[0]["inventoryReferences"] == [{"snapshotLocalId": "container:bag-a"}, {"snapshotLocalId": "container:bag-b"}]
+    assert players[0]["equipmentReferences"] == [{"snapshotLocalId": "equipment:equip-a"}]
 
 
 def test_v2_world_marks_absent_malformed_and_unsupported_families_without_raw_objects():
