@@ -12,7 +12,7 @@ collection. The relationship is one-way: v1 is not reconstructed from v2.
 
 | v1 fact | v2 counterpart | Notes |
 | --- | --- | --- |
-| `palCount` | `domainCounts.pals` | Both count decoded non-player character instances. |
+| `palCount` | `domainCounts.pals` | Both count decoded non-player character instances that expose an instance ID. V1 additionally counts malformed/unaddressable non-player entries; v2 omits those entries rather than inventing an identifier. |
 | no instance fields | `pals[]` | v1 intentionally has no per-Pal identity, ownership, skills, traits, container, or base-assignment surface. |
 
 V2 may retain snapshot-local identifiers and field-presence states needed for
