@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 
@@ -8,6 +9,15 @@ import zstandard
 from palworld_save_facts.cli import main
 from palworld_save_facts.canonical import adjacent_summary, canonical_bytes, snapshot_id
 from palworld_save_facts.extract import SCHEMA_V1, SCHEMA_V2, extract_v1, extract_v2, extract_v2_pals, extract_v2_players, extract_v2_world
+
+
+def _private_validator_module():
+    path = Path(__file__).parents[1] / "scripts" / "private_validate.py"
+    spec = importlib.util.spec_from_file_location("private_validate", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def property(value):
@@ -156,3 +166,30 @@ def test_analyze_refuses_output_inside_input_or_existing_directory(tmp_path, cap
     output.mkdir()
     assert main(["analyze", "--input", str(fixture), "--output", str(output)]) == 2
     assert capsys.readouterr().err == "palworld-save-facts: analysis-failed\n"
+
+
+def test_private_validator_keeps_malformed_manifest_diagnostics_sanitized(monkeypatch, tmp_path):
+    validator = _private_validator_module()
+    corpus = tmp_path / "controlled-corpus"
+    for family in validator.REQUIRED_FAMILIES:
+        (corpus / family / "private-snapshot-name").mkdir(parents=True)
+    malformed = corpus / "corrupt" / "private-snapshot-name"
+
+    def manifest(snapshot):
+        if snapshot == malformed:
+            raise RuntimeError("private-path-or-identifier-must-not-escape")
+        return [{"path": "private-value", "sha256": "private-hash"}]
+
+    def fake_analyze(snapshot, output, *_):
+        if snapshot.parent.name not in {"current", "adjacent", "historical"}:
+            raise ValueError("expected-negative-fixture")
+
+    monkeypatch.setattr(validator, "source_manifest", manifest)
+    monkeypatch.setattr(validator, "analyze", fake_analyze)
+    report = tmp_path / "private-report.json"
+
+    assert validator.validate(corpus, report) is False
+    text = report.read_text()
+    assert "private-snapshot-name" not in text
+    assert "private-path-or-identifier" not in text
+    assert "RuntimeError" in text
