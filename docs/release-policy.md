@@ -34,6 +34,8 @@ controlled host. Its defaults are intentionally closed:
 
 The benchmark writes a private report and emits only `pass` or `fail`; it does
 not reveal paths, save hashes, entity counts, identifiers, or decoded values.
+It uses one host-wide private temporary lock, so independently selected output
+directories cannot bypass the one-analysis limit.
 An OS/container memory limit remains required in production; the benchmark is
 the release qualification check, not a sandbox.
 

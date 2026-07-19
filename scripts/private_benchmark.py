@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Final
@@ -35,12 +36,12 @@ def _peak_working_set_bytes(process_id: int) -> int:
     return 0
 
 
-def _single_analysis_lock(directory: Path) -> int:
+def _single_analysis_lock() -> int:
     """Acquire a private-host Linux advisory lock for one active benchmark."""
     import fcntl
 
-    lock_path = directory / ".palworld-save-facts-analysis.lock"
-    descriptor = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o600)
+    lock_path = Path(tempfile.gettempdir()) / "palworld-save-facts.analysis.lock"
+    descriptor = os.open(lock_path, os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError as error:
@@ -78,7 +79,7 @@ def benchmark(executable: str, snapshot: Path, output: Path, report: Path | None
     if output.exists():
         raise RuntimeError("output-directory-already-exists")
     output.parent.mkdir(parents=True, exist_ok=True)
-    lock = _single_analysis_lock(output.parent)
+    lock = _single_analysis_lock()
     started = time.monotonic()
     peak = 0
     passed = False
