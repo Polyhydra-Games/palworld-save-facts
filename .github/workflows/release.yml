@@ -16,6 +16,13 @@ permissions:
   attestations: write
   id-token: write
 
+concurrency:
+  # Manual dispatches run from a branch ref, while tag pushes run from the
+  # tag ref. Key both paths by the effective release tag to prevent duplicate
+  # publication when the same tag is dispatched and pushed concurrently.
+  group: palworld-save-facts-release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   prepare_oci:
     runs-on: ubuntu-latest
