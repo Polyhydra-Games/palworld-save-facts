@@ -194,10 +194,17 @@ def test_v2_world_projects_stable_relationships_without_native_payloads():
         "camps-unsupported", "dungeons-unsupported", "equipment-unsupported", "facilities-unsupported", "invaders-unsupported",
         "itemSlots-unsupported", "oilRigs-unsupported", "structures-unsupported", "supplySystems-unsupported", "workState-unsupported", "workers-unsupported",
     ]
-    assert world["guilds"] == [{"snapshotLocalId": "guild:guild-b", "references": ["base:base-a", "player:player-a", "player:player-b"], "state": "present"}]
-    assert world["settlements"] == [{"snapshotLocalId": "settlement:base-a", "references": ["guild:guild-b"], "state": "present"}]
-    assert world["containers"] == [{"snapshotLocalId": "container:container-a", "references": ["base:base-a"], "state": "present"}]
-    assert world["mapObjects"] == [{"snapshotLocalId": "mapObject:object-a", "references": ["base:base-a"], "state": "present"}]
+    entity = lambda identifier, kind, references: {
+        "snapshotLocalId": identifier, "kind": {"state": "present", "value": kind}, "name": {"state": "absent", "value": None},
+        "position": {"state": "absent", "value": None}, "references": [{"snapshotLocalId": reference} for reference in references],
+        "state": {"state": "present", "value": "present"},
+    }
+    assert world["guilds"] == [entity("guild:guild-b", "guild", ["base:base-a", "player:player-a", "player:player-b"])]
+    assert world["settlements"] == [entity("settlement:base-a", "settlement", ["guild:guild-b"])]
+    assert world["containers"] == [entity("container:container-a", "container", ["base:base-a"])]
+    assert world["mapObjects"] == [entity("mapObject:object-a", "mapObject", ["base:base-a"])]
+    assert next(item for item in world["families"] if item["family"] == "guilds") == {"family": "guilds", "state": "present", "warningCode": None}
+    assert next(item for item in world["families"] if item["family"] == "workers") == {"family": "workers", "state": "unsupported", "warningCode": "workers-unsupported"}
     assert "Unmapped" not in str(world)
 
 
