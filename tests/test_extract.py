@@ -164,11 +164,49 @@ def test_v2_players_project_guild_roles_last_online_and_container_references():
     assert players[0]["equipmentReferences"] == [{"snapshotLocalId": "equipment:equip-a"}]
 
 
+def test_v2_world_projects_stable_relationships_without_native_payloads():
+    world_source = {
+        "GroupSaveDataMap": {"value": [
+            {
+                "key": property("guild-b"),
+                "value": {"RawData": {"value": {
+                    "group_type": "EPalGroupType::Guild", "players": [{"player_uid": "player-b"}, {"player_uid": "player-a"}],
+                    "BaseCampId": property("base-a"),
+                }}},
+            },
+            {"key": property("ignored"), "value": {"RawData": {"value": {"group_type": "EPalGroupType::Other"}}}},
+        ]},
+        "BaseCampSaveData": {"value": [{
+            "key": property("base-a"), "value": {"RawData": {"value": {"GroupId": property("guild-b"), "Unmapped": {"private": "raw-only"}}}},
+        }]},
+        "ItemContainerSaveData": {"value": [{
+            "key": property("container-a"), "value": {"RawData": {"value": {"BaseCampId": property("base-a")}}},
+        }]},
+        "MapObjectSaveData": {"value": [{
+            "key": property("object-a"), "value": {"RawData": {"value": {"BaseCampId": property("base-a")}}},
+        }]},
+    }
+    level = {"properties": {"worldSaveData": {"value": world_source}}}
+
+    world, warnings = extract_v2_world(level)
+
+    assert warnings == [
+        "camps-unsupported", "dungeons-unsupported", "equipment-unsupported", "facilities-unsupported", "invaders-unsupported",
+        "itemSlots-unsupported", "oilRigs-unsupported", "structures-unsupported", "supplySystems-unsupported", "workState-unsupported", "workers-unsupported",
+    ]
+    assert world["guilds"] == [{"snapshotLocalId": "guild:guild-b", "references": ["base:base-a", "player:player-a", "player:player-b"], "state": "present"}]
+    assert world["settlements"] == [{"snapshotLocalId": "settlement:base-a", "references": ["guild:guild-b"], "state": "present"}]
+    assert world["containers"] == [{"snapshotLocalId": "container:container-a", "references": ["base:base-a"], "state": "present"}]
+    assert world["mapObjects"] == [{"snapshotLocalId": "mapObject:object-a", "references": ["base:base-a"], "state": "present"}]
+    assert "Unmapped" not in str(world)
+
+
 def test_v2_world_marks_absent_malformed_and_unsupported_families_without_raw_objects():
     level = {"properties": {"worldSaveData": {"value": {"BaseCampSaveData": {"value": [{}]}, "GroupSaveDataMap": {"value": "bad"}}}}}
     world, warnings = extract_v2_world(level)
-    assert world["settlements"] == [{"snapshotLocalId": "settlements:0", "references": [], "state": "present"}]
+    assert world["settlements"] == []
     assert "guilds-malformed" in warnings and "facilities-unsupported" in warnings
+    assert "settlements-id-missing" in warnings
 
 
 def test_v2_snapshot_assembly_does_not_change_v1_output_contract():

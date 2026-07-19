@@ -130,6 +130,51 @@ def _player_id(entry: dict[str, Any]) -> str:
     return str(_value(entry.get("key", {}).get("PlayerUId"), ""))
 
 
+def _map_entries(world: dict[str, Any], source_key: str) -> tuple[str, list[dict[str, Any]]]:
+    """Return a decoder map's state without exposing its native payload."""
+    raw = world.get(source_key)
+    if raw is None:
+        return "absent", []
+    values = raw.get("value", []) if isinstance(raw, dict) else []
+    if not isinstance(values, list):
+        return "malformed", []
+    return "present", [entry for entry in values if isinstance(entry, dict)]
+
+
+def _entry_payload(entry: dict[str, Any]) -> dict[str, Any]:
+    """Read the typed portion of a map entry while keeping unknown objects raw-only."""
+    raw = entry.get("value", {})
+    if not isinstance(raw, dict):
+        return {}
+    raw_data = raw.get("RawData", raw)
+    if not isinstance(raw_data, dict):
+        return {}
+    value: Any = raw_data
+    while isinstance(value, dict) and "value" in value:
+        value = value["value"]
+    return value if isinstance(value, dict) else {}
+
+
+def _entry_id(entry: dict[str, Any], payload: dict[str, Any], *keys: str) -> str:
+    """Select a native key solely to build a restricted snapshot-local ID."""
+    candidates = [entry.get("key"), *(payload.get(key) for key in keys)]
+    for candidate in candidates:
+        value = _value(candidate)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
+def _local_reference(payload: dict[str, Any], prefix: str, *keys: str) -> str | None:
+    for key in keys:
+        if key not in payload:
+            continue
+        value = _value(payload[key])
+        if value not in (None, ""):
+            return f"{prefix}:{value}"
+    return None
+
+
 def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, tuple[str, dict[str, Any]]]]:
     memberships: dict[str, tuple[str, dict[str, Any]]] = {}
     guilds = 0
@@ -269,21 +314,51 @@ def extract_v2_world(level: dict[str, Any]) -> tuple[dict[str, list[dict[str, An
     world = _world(level)
     result: dict[str, list[dict[str, Any]]] = {family: [] for family in WORLD_FAMILIES}
     warnings: list[str] = []
-    source_keys = {"guilds": "GroupSaveDataMap", "settlements": "BaseCampSaveData", "mapObjects": "MapObjectSaveData"}
+    source_keys = {
+        "guilds": "GroupSaveDataMap",
+        "settlements": "BaseCampSaveData",
+        "containers": "ItemContainerSaveData",
+        "mapObjects": "MapObjectSaveData",
+    }
     for family, source_key in source_keys.items():
-        raw = world.get(source_key)
-        if raw is None:
-            warnings.append(f"{family}-absent")
+        state, entries = _map_entries(world, source_key)
+        if state != "present":
+            warnings.append(f"{family}-{state}")
             continue
-        values = raw.get("value", []) if isinstance(raw, dict) else []
-        if not isinstance(values, list):
-            warnings.append(f"{family}-malformed")
-            continue
-        for index, value in enumerate(values):
-            result[family].append({"snapshotLocalId": f"{family}:{index}", "references": [], "state": "present"})
+        for entry in entries:
+            payload = _entry_payload(entry)
+            if family == "guilds":
+                if payload.get("group_type") != "EPalGroupType::Guild":
+                    continue
+                native_id = _entry_id(entry, payload, "GroupId")
+                references = sorted({
+                    f"player:{player.get('player_uid')}"
+                    for player in payload.get("players", [])
+                    if isinstance(player, dict) and player.get("player_uid") not in (None, "")
+                })
+                references.extend(reference for reference in [_local_reference(payload, "base", "BaseCampId", "base_camp_id")] if reference)
+            elif family == "settlements":
+                native_id = _entry_id(entry, payload, "BaseCampId", "base_camp_id")
+                references = [reference for reference in [_local_reference(payload, "guild", "GroupId", "group_id")] if reference]
+            elif family == "containers":
+                native_id = _entry_id(entry, payload, "ContainerId", "container_id")
+                references = [reference for reference in [_local_reference(payload, "base", "BaseCampId", "base_camp_id")] if reference]
+            else:
+                native_id = _entry_id(entry, payload, "MapObjectId", "map_object_id")
+                references = [reference for reference in [_local_reference(payload, "base", "BaseCampId", "base_camp_id")] if reference]
+            if not native_id:
+                warnings.append(f"{family}-id-missing")
+                continue
+            result[family].append({
+                "snapshotLocalId": f"{family[:-1] if family.endswith('s') else family}:{native_id}",
+                "references": sorted(set(references)),
+                "state": "present",
+            })
     for family in WORLD_FAMILIES:
         if family not in source_keys:
             warnings.append(f"{family}-unsupported")
+    for family in result:
+        result[family].sort(key=lambda item: item["snapshotLocalId"])
     return result, sorted(warnings)
 
 
