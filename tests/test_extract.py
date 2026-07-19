@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 
@@ -11,6 +12,15 @@ from palworld_save_facts.extract import SCHEMA_V1, SCHEMA_V2, extract_v1, extrac
 from palworld_save_facts.analyze import analyze
 from palworld_save_facts.extract import ExtractionError
 from palworld_save_facts.limits import AnalysisLimits, DEFAULT_ANALYSIS_LIMITS
+
+
+def _private_validator_module():
+    path = Path(__file__).parents[1] / "scripts" / "private_validate.py"
+    spec = importlib.util.spec_from_file_location("private_validate", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def property(value):
@@ -312,3 +322,30 @@ def test_analyze_fails_closed_when_a_resource_limit_is_exceeded(tmp_path):
             lambda snapshot: {"player-a": json.loads((snapshot / "Players" / "player-a.json").read_text())},
             limits=AnalysisLimits(max_raw_artifact_bytes=1),
         )
+
+
+def test_private_validator_keeps_malformed_manifest_diagnostics_sanitized(monkeypatch, tmp_path):
+    validator = _private_validator_module()
+    corpus = tmp_path / "controlled-corpus"
+    for family in validator.REQUIRED_FAMILIES:
+        (corpus / family / "private-snapshot-name").mkdir(parents=True)
+    malformed = corpus / "corrupt" / "private-snapshot-name"
+
+    def manifest(snapshot):
+        if snapshot == malformed:
+            raise RuntimeError("private-path-or-identifier-must-not-escape")
+        return [{"path": "private-value", "sha256": "private-hash"}]
+
+    def fake_analyze(snapshot, output, *_):
+        if snapshot.parent.name not in {"current", "adjacent", "historical"}:
+            raise ValueError("expected-negative-fixture")
+
+    monkeypatch.setattr(validator, "source_manifest", manifest)
+    monkeypatch.setattr(validator, "analyze", fake_analyze)
+    report = tmp_path / "private-report.json"
+
+    assert validator.validate(corpus, report) is False
+    text = report.read_text()
+    assert "private-snapshot-name" not in text
+    assert "private-path-or-identifier" not in text
+    assert "RuntimeError" in text

@@ -20,6 +20,14 @@ from palworld_save_facts.cli import _load, _player_saves
 REQUIRED_FAMILIES = ("current", "adjacent", "historical", "incomplete", "corrupt", "missing-player", "future")
 
 
+def _manifest(snapshot: Path) -> tuple[list[dict[str, str]] | None, str | None]:
+    """Return only a safe diagnostic class when a malformed tree cannot hash."""
+    try:
+        return source_manifest(snapshot), None
+    except Exception as error:
+        return None, type(error).__name__
+
+
 def validate(corpus: Path, report: Path) -> bool:
     if not corpus.is_dir() or report.resolve().is_relative_to(corpus.resolve()):
         raise ValueError("invalid-private-validator-path")
@@ -34,15 +42,18 @@ def validate(corpus: Path, report: Path) -> bool:
                 passed = False
                 continue
             for index, snapshot in enumerate(snapshots):
-                before = source_manifest(snapshot)
                 output = scratch_parent / f"{family}-{index}"
-                try:
-                    analyze(snapshot, output, _load, _player_saves)
-                    result = "success"
-                except Exception as error:  # Private report may retain diagnostic class only.
-                    result = type(error).__name__
-                after = source_manifest(snapshot)
-                unchanged = before == after
+                before, before_error = _manifest(snapshot)
+                if before_error is None:
+                    try:
+                        analyze(snapshot, output, _load, _player_saves)
+                        result = "success"
+                    except Exception as error:  # Private report may retain diagnostic class only.
+                        result = type(error).__name__
+                else:
+                    result = f"manifest-{before_error}"
+                after, _ = _manifest(snapshot)
+                unchanged = before is not None and after is not None and before == after
                 details.append({"family": family, "result": result, "inputUnchanged": unchanged})
                 # Current/adjacent/historical must decode; negative/future samples must fail closed.
                 expected_success = family in {"current", "adjacent", "historical"}
