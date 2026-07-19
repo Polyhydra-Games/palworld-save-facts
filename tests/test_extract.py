@@ -3,13 +3,14 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+from uuid import UUID
 
 import zstandard
 
 from palworld_save_facts.cli import main
 from palworld_save_facts.canonical import adjacent_summary, canonical_bytes, snapshot_id
 from palworld_save_facts.extract import SCHEMA_V1, SCHEMA_V2, extract_v1, extract_v2, extract_v2_pals, extract_v2_players, extract_v2_world
-from palworld_save_facts.analyze import analyze
+from palworld_save_facts.analyze import _canonical_bytes, analyze
 from palworld_save_facts.extract import ExtractionError
 from palworld_save_facts.limits import AnalysisLimits, DEFAULT_ANALYSIS_LIMITS
 
@@ -67,6 +68,16 @@ def test_cli_writes_one_json_document_from_a_decoded_fixture(capsys):
     assert output.err == ""
     assert document["schemaVersion"] == SCHEMA_V1
     assert document["players"][0]["nativeId"] == "player-a"
+
+
+def test_canonical_bytes_normalizes_decoder_native_scalar_types():
+    encoded = _canonical_bytes({
+        "uuid": UUID("41b3cd76-0000-0000-0000-000000000000"),
+        "date": datetime(2026, 7, 19, tzinfo=timezone.utc),
+        "bytes": b"\x01\xff",
+    })
+
+    assert encoded == b'{"bytes":"01ff","date":"2026-07-19T00:00:00+00:00","uuid":"41b3cd76-0000-0000-0000-000000000000"}\n'
 
 
 def test_player_uuid_lookup_accepts_hyphenated_decoded_key_and_filename():

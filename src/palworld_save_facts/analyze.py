@@ -7,9 +7,10 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import zstandard
 
@@ -37,7 +38,24 @@ def source_manifest(snapshot: Path) -> list[dict[str, str]]:
 
 
 def _canonical_bytes(document: Any) -> bytes:
-    return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8") + b"\n"
+    return json.dumps(
+        document,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=_json_default,
+    ).encode("utf-8") + b"\n"
+
+
+def _json_default(value: Any) -> str:
+    """Normalize decoder-native scalar types without using repr or object state."""
+    if isinstance(value, UUID) or (type(value).__name__ == "UUID" and type(value).__module__.startswith("palsav.")):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        return value.hex()
+    raise TypeError(f"unsupported-json-value:{type(value).__name__}")
 
 
 def _manifest_digest(manifest: list[dict[str, str]]) -> str:
