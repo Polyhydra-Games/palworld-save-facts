@@ -88,6 +88,29 @@ def test_v2_players_are_ordered_and_missing_saves_are_redacted_warnings():
     assert warnings == ["player-save-missing"]
 
 
+def test_v2_players_project_guild_roles_last_online_and_container_references():
+    player_data = {"IsPlayer": property(True), "LastOnlineTime": property(1234)}
+    player_entry = {"key": {"PlayerUId": property("player-a")}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": player_data}}}}}}
+    guild_data = {
+        "group_type": "EPalGroupType::Guild",
+        "players": [{"player_uid": "player-a", "player_role": property("Admin")}],
+    }
+    guild_entry = {"key": property("guild-a"), "value": {"RawData": {"value": guild_data}}}
+    world = {"CharacterSaveParameterMap": {"value": [player_entry]}, "GroupSaveDataMap": {"value": [guild_entry]}}
+    level = {"properties": {"worldSaveData": {"value": world}}}
+    save_data = {"InventoryContainerIds": property({"values": [property("bag-b"), property("bag-a")]}), "EquipItemContainerId": property("equip-a")}
+    saves = {"player-a": {"properties": {"SaveData": {"value": save_data}}}}
+
+    players, warnings = extract_v2_players(level, saves)
+
+    assert warnings == []
+    assert players[0]["guild"] == {"state": "present", "value": "guild:guild-a"}
+    assert players[0]["guildRole"] == {"state": "present", "value": "Admin"}
+    assert players[0]["lastOnline"] == {"state": "present", "value": 1234}
+    assert players[0]["inventoryReferences"] == ["container:bag-a", "container:bag-b"]
+    assert players[0]["equipmentReferences"] == ["equipment:equip-a"]
+
+
 def test_v2_world_marks_absent_malformed_and_unsupported_families_without_raw_objects():
     level = {"properties": {"worldSaveData": {"value": {"BaseCampSaveData": {"value": [{}]}, "GroupSaveDataMap": {"value": "bad"}}}}}
     world, warnings = extract_v2_world(level)

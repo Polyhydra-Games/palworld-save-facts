@@ -43,6 +43,16 @@ def _list_field(data: dict[str, Any], key: str) -> dict[str, Any]:
     return {"state": "present", "values": _property_values(data[key])}
 
 
+def _references(data: dict[str, Any], key: str, prefix: str) -> list[str]:
+    """Map decoder scalar/list IDs to deterministic snapshot-local references."""
+    if key not in data:
+        return []
+    values = _property_values(data[key])
+    if not values:
+        values = [_value(data[key])]
+    return sorted({f"{prefix}:{item}" for item in values if item not in (None, "")})
+
+
 def _world(decoded: dict[str, Any]) -> dict[str, Any]:
     return decoded.get("properties", {}).get("worldSaveData", {}).get("value", {})
 
@@ -59,8 +69,8 @@ def _player_id(entry: dict[str, Any]) -> str:
     return str(_value(entry.get("key", {}).get("PlayerUId"), ""))
 
 
-def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, str]]:
-    memberships: dict[str, str] = {}
+def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, tuple[str, dict[str, Any]]]]:
+    memberships: dict[str, tuple[str, dict[str, Any]]] = {}
     guilds = 0
     for entry in world.get("GroupSaveDataMap", {}).get("value", []):
         raw = entry.get("value", {}).get("RawData", {}).get("value", {})
@@ -73,7 +83,7 @@ def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, str]]:
         for player in raw.get("players", []):
             native_id = str(player.get("player_uid", ""))
             if native_id:
-                memberships[native_id] = guild_id
+                memberships[native_id] = (guild_id, _field(player, "player_role"))
     return guilds, memberships
 
 
@@ -136,14 +146,16 @@ def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, 
             "snapshotLocalId": f"player:{native_id}",
             "nativeId": {"state": "present", "value": native_id},
             "displayName": _field(data, "NickName"),
-            "guild": {"state": "present", "value": memberships[native_id]} if native_id in memberships else {"state": "absent", "value": None},
+            "guild": {"state": "present", "value": f"guild:{memberships[native_id][0]}"} if native_id in memberships else {"state": "absent", "value": None},
+            "guildRole": memberships[native_id][1] if native_id in memberships else {"state": "absent", "value": None},
             "level": _field(data, "Level", numeric=True), "experience": _field(data, "Exp", numeric=True),
             "points": _field(save_data, "TechnologyPoint", numeric=True),
             "technology": _list_field(save_data, "UnlockedTechnologyNames"),
             "recipes": _list_field(save_data, "UnlockedRecipeTechnologyNames"),
             "quests": _list_field(save_data, "CompletedQuestArray"),
-            "lastOnline": {"state": "unknown", "value": None},
-            "inventoryReferences": [], "equipmentReferences": [],
+            "lastOnline": _field(data, "LastOnlineTime", numeric=True),
+            "inventoryReferences": _references(save_data, "InventoryContainerIds", "container"),
+            "equipmentReferences": _references(save_data, "EquipItemContainerId", "equipment"),
             "position": {"state": "absent", "value": None}, "state": _field(data, "State"),
         })
     return sorted(players, key=lambda player: player["snapshotLocalId"]), sorted(set(warnings))
@@ -233,7 +245,7 @@ def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], o
             "recipes": _property_values(save_data.get("UnlockedRecipeTechnologyNames")),
             "completedQuests": _property_values(save_data.get("CompletedQuestArray")),
             "technologyPoints": int(_value(save_data.get("TechnologyPoint"), 0)),
-            "guildId": memberships.get(native_id),
+            "guildId": memberships.get(native_id, (None, {"state": "absent", "value": None}))[0],
         })
     players.sort(key=lambda player: player["nativeId"])
     return {
