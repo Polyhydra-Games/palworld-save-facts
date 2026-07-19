@@ -130,6 +130,11 @@ def _player_id(entry: dict[str, Any]) -> str:
     return str(_value(entry.get("key", {}).get("PlayerUId"), ""))
 
 
+def player_lookup_key(value: str) -> str:
+    """Match UUID spellings used by decoded keys and save filenames."""
+    return value.replace("-", "").casefold()
+
+
 def _map_entries(world: dict[str, Any], source_key: str) -> tuple[str, list[dict[str, Any]]]:
     """Return a decoder map's state without exposing its native payload."""
     raw = world.get(source_key)
@@ -284,6 +289,7 @@ def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, 
     world = _world(level)
     guild_count, memberships = _guild_memberships(world)
     del guild_count
+    player_saves_by_key = {player_lookup_key(key): value for key, value in player_saves.items()}
     players: list[dict[str, Any]] = []
     warnings: list[str] = []
     characters = world.get("CharacterSaveParameterMap", {}).get("value", [])
@@ -296,7 +302,7 @@ def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, 
         native_id = _player_id(entry)
         if not native_id:
             raise ExtractionError("player-id-missing")
-        save = player_saves.get(native_id.casefold())
+        save = player_saves_by_key.get(player_lookup_key(native_id))
         if save is None:
             warnings.append("player-save-missing")
             save_data: dict[str, Any] = {}
@@ -430,6 +436,7 @@ def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], o
     if not isinstance(characters, list):
         raise ExtractionError("character-map-invalid")
     guild_count, memberships = _guild_memberships(world)
+    player_saves_by_key = {player_lookup_key(key): value for key, value in player_saves.items()}
     players: list[dict[str, Any]] = []
     pal_count = 0
     for entry in characters:
@@ -440,7 +447,7 @@ def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], o
         native_id = _player_id(entry)
         if not native_id:
             raise ExtractionError("player-id-missing")
-        player_save = player_saves.get(native_id.casefold())
+        player_save = player_saves_by_key.get(player_lookup_key(native_id))
         if player_save is None:
             raise ExtractionError(f"player-save-missing:{native_id}")
         save_data = _save_data(player_save)
