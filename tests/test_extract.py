@@ -89,16 +89,19 @@ def test_v2_players_are_ordered_and_missing_saves_are_redacted_warnings():
 
 
 def test_v2_players_project_guild_roles_last_online_and_container_references():
-    player_data = {"IsPlayer": property(True), "LastOnlineTime": property(1234)}
+    player_data = {"IsPlayer": property(True)}
     player_entry = {"key": {"PlayerUId": property("player-a")}, "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": player_data}}}}}}
     guild_data = {
         "group_type": "EPalGroupType::Guild",
-        "players": [{"player_uid": "player-a", "player_role": property("Admin")}],
+        "players": [{"player_uid": "player-a", "player_role": property("Admin"), "player_info": {"last_online_real_time": property(1234)}}],
     }
     guild_entry = {"key": property("guild-a"), "value": {"RawData": {"value": guild_data}}}
     world = {"CharacterSaveParameterMap": {"value": [player_entry]}, "GroupSaveDataMap": {"value": [guild_entry]}}
     level = {"properties": {"worldSaveData": {"value": world}}}
-    save_data = {"InventoryContainerIds": property({"values": [property("bag-b"), property("bag-a")]}), "EquipItemContainerId": property("equip-a")}
+    save_data = {
+        "InventoryContainerIds": property({"values": [{"ID": property("bag-b")}, {"ID": property("bag-a")}]}),
+        "EquipItemContainerId": property({"ID": property("equip-a")}),
+    }
     saves = {"player-a": {"properties": {"SaveData": {"value": save_data}}}}
 
     players, warnings = extract_v2_players(level, saves)

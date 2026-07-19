@@ -47,10 +47,35 @@ def _references(data: dict[str, Any], key: str, prefix: str) -> list[str]:
     """Map decoder scalar/list IDs to deterministic snapshot-local references."""
     if key not in data:
         return []
-    values = _property_values(data[key])
-    if not values:
-        values = [_value(data[key])]
+    values = _reference_values(data[key])
     return sorted({f"{prefix}:{item}" for item in values if item not in (None, "")})
+
+
+def _reference_values(value: Any) -> list[str]:
+    """Read scalar, list, and decoder struct-wrapped native IDs.
+
+    Item-container IDs are commonly encoded as ``value.ID.value`` rather than
+    as a plain scalar.  Keeping this decoding local to reference fields avoids
+    changing the legacy scalar/list semantics used by v1 projections.
+    """
+    def unwrap(candidate: Any) -> Any:
+        direct = _value(candidate)
+        if direct is not None:
+            return direct
+        if not isinstance(candidate, dict):
+            return None
+        for name in ("ID", "Id", "id"):
+            if name in candidate:
+                nested = unwrap(candidate[name])
+                if nested is not None:
+                    return nested
+        return None
+
+    raw = value.get("value", value) if isinstance(value, dict) else value
+    if isinstance(raw, dict) and "values" in raw:
+        raw = raw["values"]
+    items = raw if isinstance(raw, list) else [raw]
+    return sorted({str(item) for item in (unwrap(item) for item in items) if item not in (None, "")})
 
 
 def _world(decoded: dict[str, Any]) -> dict[str, Any]:
@@ -69,8 +94,8 @@ def _player_id(entry: dict[str, Any]) -> str:
     return str(_value(entry.get("key", {}).get("PlayerUId"), ""))
 
 
-def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, tuple[str, dict[str, Any]]]]:
-    memberships: dict[str, tuple[str, dict[str, Any]]] = {}
+def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, tuple[str, dict[str, Any], dict[str, Any]]]]:
+    memberships: dict[str, tuple[str, dict[str, Any], dict[str, Any]]] = {}
     guilds = 0
     for entry in world.get("GroupSaveDataMap", {}).get("value", []):
         raw = entry.get("value", {}).get("RawData", {}).get("value", {})
@@ -83,7 +108,14 @@ def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, tuple[str,
         for player in raw.get("players", []):
             native_id = str(player.get("player_uid", ""))
             if native_id:
-                memberships[native_id] = (guild_id, _field(player, "player_role"))
+                player_info = player.get("player_info")
+                if not isinstance(player_info, dict):
+                    player_info = {}
+                memberships[native_id] = (
+                    guild_id,
+                    _field(player, "player_role"),
+                    _field(player_info, "last_online_real_time", numeric=True),
+                )
     return guilds, memberships
 
 
@@ -142,6 +174,8 @@ def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, 
             save_data: dict[str, Any] = {}
         else:
             save_data = _save_data(save)
+        character_last_online = _field(data, "LastOnlineTime", numeric=True)
+        roster_last_online = memberships[native_id][2] if native_id in memberships else {"state": "absent", "value": None}
         players.append({
             "snapshotLocalId": f"player:{native_id}",
             "nativeId": {"state": "present", "value": native_id},
@@ -153,7 +187,7 @@ def extract_v2_players(level: dict[str, Any], player_saves: dict[str, dict[str, 
             "technology": _list_field(save_data, "UnlockedTechnologyNames"),
             "recipes": _list_field(save_data, "UnlockedRecipeTechnologyNames"),
             "quests": _list_field(save_data, "CompletedQuestArray"),
-            "lastOnline": _field(data, "LastOnlineTime", numeric=True),
+            "lastOnline": character_last_online if character_last_online["state"] == "present" else roster_last_online,
             "inventoryReferences": _references(save_data, "InventoryContainerIds", "container"),
             "equipmentReferences": _references(save_data, "EquipItemContainerId", "equipment"),
             "position": {"state": "absent", "value": None}, "state": _field(data, "State"),
