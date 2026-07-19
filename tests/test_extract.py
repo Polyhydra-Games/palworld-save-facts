@@ -108,6 +108,7 @@ def test_v1_v2_compatibility_documentation_keeps_pal_mapping_and_removal_boundar
     document = (Path(__file__).parents[1] / "docs" / "v1-v2-compatibility.md").read_text(encoding="utf-8")
     assert "`palCount`" in document
     assert "`domainCounts.pals`" in document
+    assert "malformed/unaddressable" in document
     assert "Decoder-native" in document
     assert "separately approved removal" in document
 
