@@ -59,11 +59,12 @@ def _reference_values(value: Any) -> list[str]:
     changing the legacy scalar/list semantics used by v1 projections.
     """
     def unwrap(candidate: Any) -> Any:
-        direct = _value(candidate)
-        if direct is not None:
-            return direct
         if not isinstance(candidate, dict):
-            return None
+            return candidate
+        if "value" in candidate:
+            nested = unwrap(candidate["value"])
+            if nested is not None:
+                return nested
         for name in ("ID", "Id", "id"):
             if name in candidate:
                 nested = unwrap(candidate[name])

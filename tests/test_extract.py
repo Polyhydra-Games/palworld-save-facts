@@ -99,7 +99,7 @@ def test_v2_players_project_guild_roles_last_online_and_container_references():
     world = {"CharacterSaveParameterMap": {"value": [player_entry]}, "GroupSaveDataMap": {"value": [guild_entry]}}
     level = {"properties": {"worldSaveData": {"value": world}}}
     save_data = {
-        "InventoryContainerIds": property({"values": [{"ID": property("bag-b")}, {"ID": property("bag-a")}]}),
+        "InventoryContainerIds": property({"values": [property({"ID": property("bag-b")}), {"ID": property("bag-a")}]}),
         "EquipItemContainerId": property({"ID": property("equip-a")}),
     }
     saves = {"player-a": {"properties": {"SaveData": {"value": save_data}}}}
