@@ -16,6 +16,10 @@ permissions:
   attestations: write
   id-token: write
 
+concurrency:
+  group: palworld-save-facts-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   prepare_oci:
     runs-on: ubuntu-latest
