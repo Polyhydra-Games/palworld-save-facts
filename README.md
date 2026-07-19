@@ -86,3 +86,9 @@ This project is GPL-3.0-or-later. `vendor/PalworldSaveTools` is a pinned
 upstream source submodule; the decoder within `src/palsav` and its `palooz`
 dependency are GPL-3.0-or-later. See the upstream source and included license
 notices before redistributing modified builds.
+
+## Release policy
+
+See [the release, update, and rollback policy](docs/release-policy.md) for
+artifact evidence, private qualification limits, and the immutable rollback
+procedure.

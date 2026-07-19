@@ -1,0 +1,8 @@
+.git
+.venv
+.build-tmp
+.pip-cache
+tests
+docs
+__pycache__
+*.pyc
