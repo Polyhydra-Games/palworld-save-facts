@@ -3,13 +3,14 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+from uuid import UUID
 
 import zstandard
 
 from palworld_save_facts.cli import main
 from palworld_save_facts.canonical import adjacent_summary, canonical_bytes, snapshot_id
 from palworld_save_facts.extract import SCHEMA_V1, SCHEMA_V2, extract_v1, extract_v2, extract_v2_pals, extract_v2_players, extract_v2_world
-from palworld_save_facts.analyze import analyze
+from palworld_save_facts.analyze import _canonical_bytes, analyze
 from palworld_save_facts.extract import ExtractionError
 from palworld_save_facts.limits import AnalysisLimits, DEFAULT_ANALYSIS_LIMITS
 
@@ -67,6 +68,48 @@ def test_cli_writes_one_json_document_from_a_decoded_fixture(capsys):
     assert output.err == ""
     assert document["schemaVersion"] == SCHEMA_V1
     assert document["players"][0]["nativeId"] == "player-a"
+
+
+def test_canonical_bytes_normalizes_decoder_native_scalar_types():
+    encoded = _canonical_bytes({
+        "uuid": UUID("41b3cd76-0000-0000-0000-000000000000"),
+        "date": datetime(2026, 7, 19, tzinfo=timezone.utc),
+        "bytes": b"\x01\xff",
+    })
+
+    assert encoded == b'{"bytes":"01ff","date":"2026-07-19T00:00:00+00:00","uuid":"41b3cd76-0000-0000-0000-000000000000"}\n'
+
+
+def test_canonical_bytes_normalizes_palsav_uuid_type_without_importing_decoder():
+    decoder_uuid = type(
+        "UUID",
+        (),
+        {"__module__": "palsav.archive", "__str__": lambda self: "41b3cd76-0000-0000-0000-000000000000"},
+    )()
+
+    assert _canonical_bytes({"uuid": decoder_uuid}) == b'{"uuid":"41b3cd76-0000-0000-0000-000000000000"}\n'
+
+
+def test_player_uuid_lookup_accepts_hyphenated_decoded_key_and_filename():
+    level = {
+        "properties": {"worldSaveData": {"value": {
+            "CharacterSaveParameterMap": {"value": [
+                {"key": {"PlayerUId": property("41b3cd76-0000-0000-0000-000000000000")},
+                 "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {
+                     "IsPlayer": property(True), "Level": property(9)}}}}}}},
+            ]},
+            "GroupSaveDataMap": {"value": []},
+            "BaseCampSaveData": {"value": []},
+        }}}}
+    player = {"properties": {"SaveData": {"value": {
+        "TechnologyPoint": property(0),
+        "UnlockedRecipeTechnologyNames": property({"values": []}),
+        "CompletedQuestArray": property({"values": []}),
+    }}}}
+
+    facts = extract_v1(level, {"41B3CD76000000000000000000000000": player}, datetime.now(timezone.utc))
+
+    assert facts["players"][0]["nativeId"] == "41b3cd76-0000-0000-0000-000000000000"
 
 
 def test_v2_pal_projection_is_deterministic_and_does_not_model_causes():
@@ -146,6 +189,22 @@ def test_v2_players_are_ordered_and_missing_saves_are_redacted_warnings():
     players, warnings = extract_v2_players(level, {})
     assert [player["snapshotLocalId"] for player in players] == ["player:player-a", "player:player-b"]
     assert warnings == ["player-save-missing"]
+
+
+def test_v2_player_uuid_lookup_accepts_hyphenated_decoded_key_and_filename():
+    level = {"properties": {"worldSaveData": {"value": {"CharacterSaveParameterMap": {"value": [
+        {"key": {"PlayerUId": property("41b3cd76-0000-0000-0000-000000000000")},
+         "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {
+             "IsPlayer": property(True), "Level": property(9)}}}}}}},
+    ]}, "GroupSaveDataMap": {"value": []}}}}}
+    saves = {"41B3CD76000000000000000000000000": {"properties": {"SaveData": {"value": {
+        "TechnologyPoint": property(3),
+    }}}}}
+
+    players, warnings = extract_v2_players(level, saves)
+
+    assert warnings == []
+    assert players[0]["points"] == {"state": "present", "value": 3}
 
 
 def test_v2_players_project_guild_roles_last_online_and_container_references():
