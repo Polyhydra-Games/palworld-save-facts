@@ -98,10 +98,10 @@ def test_v2_world_projects_stable_relationships_without_native_payloads():
             {"key": property("ignored"), "value": {"RawData": {"value": {"group_type": "EPalGroupType::Other"}}}},
         ]},
         "BaseCampSaveData": {"value": [{
-            "key": property("base-a"), "value": {"RawData": {"value": {"GroupId": property("guild-b"), "Unmapped": {"private": "raw-only"}}}},
+            "key": property("base-a"), "value": {"RawData": {"value": {"group_id_belong_to": property("guild-b"), "Unmapped": {"private": "raw-only"}}}},
         }]},
         "ItemContainerSaveData": {"value": [{
-            "key": property("container-a"), "value": {"RawData": {"value": {"BaseCampId": property("base-a")}}},
+            "key": {"ID": property("container-a")}, "value": {"RawData": {"value": {"BaseCampId": property("base-a")}}},
         }]},
         "MapObjectSaveData": {"value": [{
             "key": property("object-a"), "value": {"RawData": {"value": {"BaseCampId": property("base-a")}}},
