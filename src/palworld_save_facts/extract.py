@@ -200,7 +200,7 @@ WORLD_FAMILIES = ("guilds", "settlements", "workers", "facilities", "structures"
 def extract_v2_world(level: dict[str, Any]) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
     """Build closed world-family projections; unknown native shapes stay raw-only."""
     world = _world(level)
-    result: dict[str, list[dict[str, Any]]] = {family: [] for family in WORLD_FAMILIES}
+    result: dict[str, list[dict[str, Any]]] = {"families": [], **{family: [] for family in WORLD_FAMILIES}}
     warnings: list[str] = []
     source_keys = {
         "guilds": "GroupSaveDataMap",
@@ -208,8 +208,12 @@ def extract_v2_world(level: dict[str, Any]) -> tuple[dict[str, list[dict[str, An
         "containers": "ItemContainerSaveData",
         "mapObjects": "MapObjectSaveData",
     }
+    family_state: dict[str, str] = {family: "unsupported" for family in WORLD_FAMILIES}
+    family_warning: dict[str, str | None] = {family: f"{family}-unsupported" for family in WORLD_FAMILIES}
     for family, source_key in source_keys.items():
         state, entries = _map_entries(world, source_key)
+        family_state[family] = state
+        family_warning[family] = None if state == "present" else f"{family}-{state}"
         if state != "present":
             warnings.append(f"{family}-{state}")
             continue
@@ -236,17 +240,27 @@ def extract_v2_world(level: dict[str, Any]) -> tuple[dict[str, list[dict[str, An
                 references = [reference for reference in [_local_reference(payload, "base", "BaseCampId", "base_camp_id")] if reference]
             if not native_id:
                 warnings.append(f"{family}-id-missing")
+                family_state[family] = "unknown"
+                family_warning[family] = f"{family}-id-missing"
                 continue
             result[family].append({
                 "snapshotLocalId": f"{family[:-1] if family.endswith('s') else family}:{native_id}",
-                "references": sorted(set(references)),
-                "state": "present",
+                "kind": {"state": "present", "value": family[:-1] if family.endswith("s") else family},
+                "name": {"state": "absent", "value": None},
+                "position": {"state": "absent", "value": None},
+                "references": [{"snapshotLocalId": reference} for reference in sorted(set(references))],
+                "state": {"state": "present", "value": "present"},
             })
     for family in WORLD_FAMILIES:
         if family not in source_keys:
             warnings.append(f"{family}-unsupported")
     for family in result:
-        result[family].sort(key=lambda item: item["snapshotLocalId"])
+        if family != "families":
+            result[family].sort(key=lambda item: item["snapshotLocalId"])
+    result["families"] = [
+        {"family": family, "state": family_state[family], "warningCode": family_warning[family]}
+        for family in WORLD_FAMILIES
+    ]
     return result, sorted(warnings)
 
 
@@ -275,7 +289,7 @@ def extract_v2(
         "provenance": {"parserVersion": parser_version, "decoderVersion": decoder_version, "gameVersion": game_version},
         "completeness": "complete" if not warnings else "partial",
         "warnings": warnings,
-        "domainCounts": {"players": len(players), "pals": len(pals), **{key: len(value) for key, value in world.items()}},
+        "domainCounts": {"players": len(players), "pals": len(pals), **{key: len(value) for key, value in world.items() if key != "families"}},
         "players": players,
         "pals": pals,
         "world": world,
