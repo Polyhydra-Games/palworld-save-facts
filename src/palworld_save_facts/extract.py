@@ -175,6 +175,38 @@ def extract_v2_world(level: dict[str, Any]) -> tuple[dict[str, list[dict[str, An
     return result, sorted(warnings)
 
 
+def extract_v2(
+    level: dict[str, Any],
+    player_saves: dict[str, dict[str, Any]],
+    observed_at: datetime,
+    *,
+    snapshot_id: str,
+    source_digest: str,
+    parser_version: str,
+    decoder_version: str,
+    game_version: str | None = None,
+) -> dict[str, Any]:
+    """Compose the typed v2 snapshot without changing the legacy v1 path."""
+    players, player_warnings = extract_v2_players(level, player_saves)
+    pals = extract_v2_pals(level, observed_at)
+    world, world_warnings = extract_v2_world(level)
+    warning_codes = sorted(set(player_warnings + world_warnings))
+    warnings = [{"code": code, "message": "source-field-unavailable"} for code in warning_codes]
+    return {
+        "schemaVersion": SCHEMA_V2,
+        "snapshotId": snapshot_id,
+        "sourceDigest": source_digest,
+        "observedAt": observed_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "provenance": {"parserVersion": parser_version, "decoderVersion": decoder_version, "gameVersion": game_version},
+        "completeness": "complete" if not warnings else "partial",
+        "warnings": warnings,
+        "domainCounts": {"players": len(players), "pals": len(pals), **{key: len(value) for key, value in world.items()}},
+        "players": players,
+        "pals": pals,
+        "world": world,
+    }
+
+
 def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], observed_at: datetime) -> dict[str, Any]:
     world = _world(level)
     characters = world.get("CharacterSaveParameterMap", {}).get("value", [])
