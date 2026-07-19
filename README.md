@@ -92,3 +92,9 @@ notices before redistributing modified builds.
 See [the release, update, and rollback policy](docs/release-policy.md) for
 artifact evidence, private qualification limits, and the immutable rollback
 procedure.
+
+## Compatibility
+
+The [v1 to v2 compatibility boundary](docs/v1-v2-compatibility.md) documents
+the aggregate Pal mapping, intentional omissions, and the separate approval
+required before any v1 removal.
