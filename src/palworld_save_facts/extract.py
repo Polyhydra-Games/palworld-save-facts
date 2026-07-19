@@ -155,11 +155,27 @@ def _entry_payload(entry: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _identifier_value(value: Any) -> Any:
+    """Read scalar IDs from ordinary properties or decoder struct-map keys."""
+    scalar = _value(value)
+    if scalar not in (None, ""):
+        return scalar
+    if isinstance(value, dict):
+        for key in ("ID", "Id", "id"):
+            if key in value:
+                nested = _identifier_value(value[key])
+                if nested not in (None, ""):
+                    return nested
+        if "value" in value:
+            return _identifier_value(value["value"])
+    return None
+
+
 def _entry_id(entry: dict[str, Any], payload: dict[str, Any], *keys: str) -> str:
     """Select a native key solely to build a restricted snapshot-local ID."""
     candidates = [entry.get("key"), *(payload.get(key) for key in keys)]
     for candidate in candidates:
-        value = _value(candidate)
+        value = _identifier_value(candidate)
         if value not in (None, ""):
             return str(value)
     return ""
@@ -169,7 +185,7 @@ def _local_reference(payload: dict[str, Any], prefix: str, *keys: str) -> str | 
     for key in keys:
         if key not in payload:
             continue
-        value = _value(payload[key])
+        value = _identifier_value(payload[key])
         if value not in (None, ""):
             return f"{prefix}:{value}"
     return None
@@ -343,7 +359,7 @@ def extract_v2_world(level: dict[str, Any]) -> tuple[dict[str, list[dict[str, An
                 references.extend(reference for reference in [_local_reference(payload, "base", "BaseCampId", "base_camp_id")] if reference)
             elif family == "settlements":
                 native_id = _entry_id(entry, payload, "BaseCampId", "base_camp_id")
-                references = [reference for reference in [_local_reference(payload, "guild", "GroupId", "group_id")] if reference]
+                references = [reference for reference in [_local_reference(payload, "guild", "GroupId", "group_id", "group_id_belong_to")] if reference]
             elif family == "containers":
                 native_id = _entry_id(entry, payload, "ContainerId", "container_id")
                 references = [reference for reference in [_local_reference(payload, "base", "BaseCampId", "base_camp_id")] if reference]
