@@ -7,7 +7,7 @@ import zstandard
 
 from palworld_save_facts.cli import main
 from palworld_save_facts.canonical import adjacent_summary, canonical_bytes, snapshot_id
-from palworld_save_facts.extract import SCHEMA_V1, extract_v1, extract_v2_pals, extract_v2_players, extract_v2_world
+from palworld_save_facts.extract import SCHEMA_V1, SCHEMA_V2, extract_v1, extract_v2, extract_v2_pals, extract_v2_players, extract_v2_world
 
 
 def property(value):
@@ -90,6 +90,18 @@ def test_v2_world_marks_absent_malformed_and_unsupported_families_without_raw_ob
     world, warnings = extract_v2_world(level)
     assert world["settlements"] == [{"snapshotLocalId": "settlements:0", "references": [], "state": "present"}]
     assert "guilds-malformed" in warnings and "facilities-unsupported" in warnings
+
+
+def test_v2_snapshot_assembly_does_not_change_v1_output_contract():
+    fixture = Path(__file__).parent / "fixtures" / "snapshot"
+    level = __import__("json").loads((fixture / "Level.json").read_text())
+    players = {"player-a": __import__("json").loads((fixture / "Players" / "player-a.json").read_text())}
+    observed = datetime(2026, 7, 18, tzinfo=timezone.utc)
+    legacy = extract_v1(level, players, observed)
+    v2 = extract_v2(level, players, observed, snapshot_id="snapshot-a", source_digest="sha256:a", parser_version="test", decoder_version="test")
+    assert legacy["schemaVersion"] == SCHEMA_V1 and v2["schemaVersion"] == SCHEMA_V2
+    assert v2["snapshotId"] == "snapshot-a" and v2["domainCounts"]["players"] == 1
+    assert "nativeId" not in legacy["players"][0] or legacy["players"][0]["nativeId"] == "player-a"
 
 
 def _tree_digest(root: Path) -> str:
