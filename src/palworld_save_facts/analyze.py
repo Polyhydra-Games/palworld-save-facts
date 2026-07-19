@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any
 import zstandard
 
 from .extract import SCHEMA_V1, ExtractionError, extract_v1
+from .limits import AnalysisLimits, DEFAULT_ANALYSIS_LIMITS
 
 
 def _sha256(path: Path) -> str:
@@ -56,12 +58,22 @@ def analyze(
     load: Callable[[Path], dict[str, Any]],
     player_saves: Callable[[Path], dict[str, dict[str, Any]]],
     observed_at: datetime | None = None,
+    limits: AnalysisLimits = DEFAULT_ANALYSIS_LIMITS,
+    monotonic: Callable[[], float] = time.monotonic,
 ) -> dict[str, Any]:
     """Decode an immutable snapshot and atomically publish private artifacts.
 
     No output is published until decoding succeeds and the input manifest is
     identical before and after the read-only operation.
     """
+    if limits.max_concurrent_analyses != 1:
+        raise ExtractionError("analysis-concurrency-limit-must-be-one")
+    started_at = monotonic()
+
+    def assert_within_timeout() -> None:
+        if monotonic() - started_at > limits.timeout_seconds:
+            raise ExtractionError("analysis-timeout-exceeded")
+
     if not snapshot.is_dir():
         raise ExtractionError("snapshot-directory-required")
     _assert_output_is_separate(snapshot, output)
@@ -69,6 +81,7 @@ def analyze(
         raise ExtractionError("output-directory-already-exists")
 
     before = source_manifest(snapshot)
+    assert_within_timeout()
     level_path = snapshot / "Level.sav"
     if not level_path.is_file():
         level_path = snapshot / "Level.json"
@@ -76,8 +89,11 @@ def analyze(
         raise ExtractionError("Level.sav is required")
 
     level = load(level_path)
+    assert_within_timeout()
     players = player_saves(snapshot)
+    assert_within_timeout()
     snapshot_document = extract_v1(level, players, observed_at or datetime.now(timezone.utc))
+    assert_within_timeout()
     after = source_manifest(snapshot)
     if before != after:
         raise ExtractionError("input-tree-changed-during-decode")
@@ -85,6 +101,11 @@ def analyze(
     raw_document = {"level": level, "players": players}
     raw_bytes = _canonical_bytes(raw_document)
     snapshot_bytes = _canonical_bytes(snapshot_document)
+    if len(raw_bytes) > limits.max_raw_artifact_bytes:
+        raise ExtractionError("raw-artifact-size-limit-exceeded")
+    if len(snapshot_bytes) > limits.max_normalized_output_bytes:
+        raise ExtractionError("normalized-output-size-limit-exceeded")
+    assert_within_timeout()
     manifest_digest = _manifest_digest(before)
 
     parent = output.parent

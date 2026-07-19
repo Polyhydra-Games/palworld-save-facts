@@ -8,6 +8,9 @@ import zstandard
 from palworld_save_facts.cli import main
 from palworld_save_facts.canonical import adjacent_summary, canonical_bytes, snapshot_id
 from palworld_save_facts.extract import SCHEMA_V1, SCHEMA_V2, extract_v1, extract_v2, extract_v2_pals, extract_v2_players, extract_v2_world
+from palworld_save_facts.analyze import analyze
+from palworld_save_facts.extract import ExtractionError
+from palworld_save_facts.limits import AnalysisLimits, DEFAULT_ANALYSIS_LIMITS
 
 
 def property(value):
@@ -156,3 +159,26 @@ def test_analyze_refuses_output_inside_input_or_existing_directory(tmp_path, cap
     output.mkdir()
     assert main(["analyze", "--input", str(fixture), "--output", str(output)]) == 2
     assert capsys.readouterr().err == "palworld-save-facts: analysis-failed\n"
+
+
+def test_analysis_resource_defaults_match_the_private_release_contract():
+    assert DEFAULT_ANALYSIS_LIMITS == AnalysisLimits(
+        max_concurrent_analyses=1,
+        timeout_seconds=600,
+        max_working_set_bytes=2 * 1024 * 1024 * 1024,
+        max_raw_artifact_bytes=4 * 1024 * 1024 * 1024,
+        max_normalized_output_bytes=128 * 1024 * 1024,
+    )
+
+
+def test_analyze_fails_closed_when_a_resource_limit_is_exceeded(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "snapshot"
+
+    with __import__("pytest").raises(ExtractionError, match="raw-artifact-size-limit-exceeded"):
+        analyze(
+            fixture,
+            tmp_path / "output",
+            lambda path: json.loads(path.read_text()),
+            lambda snapshot: {"player-a": json.loads((snapshot / "Players" / "player-a.json").read_text())},
+            limits=AnalysisLimits(max_raw_artifact_bytes=1),
+        )
