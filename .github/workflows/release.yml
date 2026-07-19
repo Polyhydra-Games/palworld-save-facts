@@ -17,6 +17,15 @@ permissions:
   id-token: write
 
 jobs:
+  prepare_oci:
+    runs-on: ubuntu-latest
+    outputs:
+      owner: ${{ steps.owner.outputs.value }}
+    steps:
+      - id: owner
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "value=${OWNER,,}" >> "$GITHUB_OUTPUT"
   build:
     strategy:
       fail-fast: false
@@ -63,7 +72,7 @@ jobs:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
   oci:
-    needs: build
+    needs: [build, prepare_oci]
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.image.outputs.digest }}
@@ -83,7 +92,7 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ github.repository_owner }}/palworld-save-facts:${{ inputs.tag || github.ref_name }}
+          tags: ghcr.io/${{ needs.prepare_oci.outputs.owner }}/palworld-save-facts:${{ inputs.tag || github.ref_name }}
   publish:
     needs: [build, oci]
     runs-on: ubuntu-latest
@@ -111,6 +120,7 @@ jobs:
         env:
           OCI_DIGEST: ${{ needs.oci.outputs.digest }}
           TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
           import hashlib
@@ -121,6 +131,7 @@ jobs:
 
           dist = Path("dist")
           assets = sorted(path for path in dist.glob("palworld-save-facts-*") if path.is_file())
+          prior = subprocess.check_output(["gh", "release", "list", "--limit", "1", "--json", "tagName", "--jq", ".[0].tagName // empty"], text=True).strip()
           manifest = {
               "schemaVersion": "palworld-save-facts/release-manifest/v1",
               "tag": os.environ["TAG"],
@@ -128,7 +139,7 @@ jobs:
               "decoderSha": subprocess.check_output(["git", "rev-parse", "HEAD:vendor/PalworldSaveTools"], text=True).strip(),
               "ociDigest": os.environ["OCI_DIGEST"],
               "compatibility": {"v1": "supported", "v2": "additive-preview"},
-              "rollbackVersion": "previous-release-required",
+              "rollbackVersion": prior or None,
               "assets": [{"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in assets],
           }
           (dist / "release-manifest.json").write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
