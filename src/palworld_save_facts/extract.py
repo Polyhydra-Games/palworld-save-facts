@@ -201,10 +201,20 @@ def extract_v2_pals(level: dict[str, Any], observed_at: datetime) -> list[dict[s
 
     pals: list[dict[str, Any]] = []
     occurrence: dict[str, int] = {}
+    # Reserve every primary ID first.  A damaged save may contain a literal
+    # native ID that looks like a generated duplicate suffix, so allocation
+    # must avoid both prior output and every real primary ID.
+    reserved = {f"pal:{native_id}" for native_id, _, _ in candidates}
+    allocated: set[str] = set()
     for native_id, _, pal in sorted(candidates, key=lambda candidate: (candidate[0], candidate[1])):
         occurrence[native_id] = occurrence.get(native_id, 0) + 1
-        suffix = "" if occurrence[native_id] == 1 else f":{occurrence[native_id]}"
-        pals.append({"snapshotLocalId": f"pal:{native_id}{suffix}", **pal})
+        snapshot_local_id = f"pal:{native_id}"
+        if occurrence[native_id] > 1:
+            snapshot_local_id = f"{snapshot_local_id}:duplicate:{occurrence[native_id]}"
+            while snapshot_local_id in reserved or snapshot_local_id in allocated:
+                snapshot_local_id += ":x"
+        allocated.add(snapshot_local_id)
+        pals.append({"snapshotLocalId": snapshot_local_id, **pal})
     return pals
 
 
