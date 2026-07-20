@@ -77,7 +77,7 @@ python3 -m venv .venv
 .venv/bin/pip install --no-deps vendor/PalworldSaveTools/src/palsav
 .venv/bin/pip install 'orjson>=3.11.8'
 .venv/bin/pip install -e '.[test]'
-.venv/bin/pytest
+bash scripts/validate.sh
 ```
 
 ## Licensing

@@ -30,7 +30,7 @@ jobs:
           python -m pip install 'orjson>=3.11.8'
           python -m pip install -e '.[test]'
       - name: Run tests
-        run: pytest -q
+        run: bash scripts/validate.sh
   executable:
     strategy:
       fail-fast: false
