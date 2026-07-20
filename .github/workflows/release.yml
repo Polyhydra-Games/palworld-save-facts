@@ -145,7 +145,7 @@ jobs:
               "sourceSha": os.environ["GITHUB_SHA"],
               "decoderSha": subprocess.check_output(["git", "rev-parse", "HEAD:vendor/PalworldSaveTools"], text=True).strip(),
               "ociDigest": os.environ["OCI_DIGEST"],
-              "compatibility": {"v1": "supported", "v2": "additive-preview"},
+              "compatibility": {"v1": "supported", "v2": "supported"},
               "rollbackVersion": prior or None,
               "assets": [{"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in assets],
           }

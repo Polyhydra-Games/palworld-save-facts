@@ -49,5 +49,6 @@ the release qualification check, not a sandbox.
 5. Preserve normalized history and private raw-artifact retention policy; a
    decoder rollback must not delete either.
 
-The v1 stdout command remains supported. v2 snapshot additions do not grant a
-public raw-data surface and do not relax the private-fixture boundary.
+The v1 stdout command remains supported. v2 normalized snapshots are a stable
+private-analysis contract; they do not grant a public raw-data surface or
+relax the private-fixture boundary.
