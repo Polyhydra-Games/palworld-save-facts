@@ -345,7 +345,33 @@ def test_analyze_writes_private_artifacts_atomically_without_changing_input(tmp_
     snapshot = json.loads((output / "snapshot.json").read_text())
     assert raw["level"]["properties"]["worldSaveData"]
     assert raw["players"]["player-a"]
-    assert snapshot["schemaVersion"] == SCHEMA_V1
+    assert snapshot["schemaVersion"] == SCHEMA_V2
+    assert snapshot["snapshotId"] == private_result["snapshotId"]
+    assert snapshot["sourceDigest"] == f"sha256:{private_result['snapshotId']}"
+    assert private_result["snapshot"]["schemaVersion"] == SCHEMA_V2
+
+
+def test_analyze_v2_snapshot_is_deterministic_for_identical_inputs(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "snapshot"
+    observed = datetime(2026, 7, 20, tzinfo=timezone.utc)
+
+    first = analyze(
+        fixture,
+        tmp_path / "first",
+        lambda path: json.loads(path.read_text()),
+        lambda snapshot: {"player-a": json.loads((snapshot / "Players" / "player-a.json").read_text())},
+        observed_at=observed,
+    )
+    second = analyze(
+        fixture,
+        tmp_path / "second",
+        lambda path: json.loads(path.read_text()),
+        lambda snapshot: {"player-a": json.loads((snapshot / "Players" / "player-a.json").read_text())},
+        observed_at=observed,
+    )
+
+    assert first["snapshotId"] == second["snapshotId"]
+    assert (tmp_path / "first" / "snapshot.json").read_bytes() == (tmp_path / "second" / "snapshot.json").read_bytes()
 
 
 def test_analyze_refuses_output_inside_input_or_existing_directory(tmp_path, capsys):

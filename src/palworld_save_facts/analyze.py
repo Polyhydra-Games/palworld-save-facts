@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import os
 import shutil
@@ -14,7 +15,8 @@ from uuid import UUID
 
 import zstandard
 
-from .extract import SCHEMA_V1, ExtractionError, extract_v1
+from . import __version__
+from .extract import SCHEMA_V2, ExtractionError, extract_v2
 from .limits import AnalysisLimits, DEFAULT_ANALYSIS_LIMITS
 
 
@@ -60,6 +62,13 @@ def _json_default(value: Any) -> str:
 
 def _manifest_digest(manifest: list[dict[str, str]]) -> str:
     return hashlib.sha256(_canonical_bytes(manifest)).hexdigest()
+
+
+def _decoder_version() -> str:
+    try:
+        return importlib.metadata.version("palsav-flex")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def _assert_output_is_separate(snapshot: Path, output: Path) -> None:
@@ -110,11 +119,20 @@ def analyze(
     assert_within_timeout()
     players = player_saves(snapshot)
     assert_within_timeout()
-    snapshot_document = extract_v1(level, players, observed_at or datetime.now(timezone.utc))
-    assert_within_timeout()
     after = source_manifest(snapshot)
     if before != after:
         raise ExtractionError("input-tree-changed-during-decode")
+    manifest_digest = _manifest_digest(before)
+    snapshot_document = extract_v2(
+        level,
+        players,
+        observed_at or datetime.now(timezone.utc),
+        snapshot_id=manifest_digest,
+        source_digest=f"sha256:{manifest_digest}",
+        parser_version=__version__,
+        decoder_version=_decoder_version(),
+    )
+    assert_within_timeout()
 
     raw_document = {"level": level, "players": players}
     raw_bytes = _canonical_bytes(raw_document)
@@ -124,8 +142,6 @@ def analyze(
     if len(snapshot_bytes) > limits.max_normalized_output_bytes:
         raise ExtractionError("normalized-output-size-limit-exceeded")
     assert_within_timeout()
-    manifest_digest = _manifest_digest(before)
-
     parent = output.parent
     parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=parent))
@@ -149,7 +165,7 @@ def analyze(
                 "path": "snapshot.json",
                 "sha256": _sha256(snapshot_path),
                 "sizeBytes": snapshot_path.stat().st_size,
-                "schemaVersion": SCHEMA_V1,
+                "schemaVersion": SCHEMA_V2,
             },
         }
         (staging / "result.json").write_bytes(_canonical_bytes(result))
