@@ -409,6 +409,20 @@ def test_analyze_fails_closed_when_a_resource_limit_is_exceeded(tmp_path):
         )
 
 
+def test_analyze_fails_closed_when_a_player_save_is_missing(tmp_path):
+    fixture = Path(__file__).parent / "fixtures" / "snapshot"
+
+    with __import__("pytest").raises(ExtractionError, match="player-save-missing"):
+        analyze(
+            fixture,
+            tmp_path / "output",
+            lambda path: json.loads(path.read_text()),
+            lambda snapshot: {},
+        )
+
+    assert not (tmp_path / "output").exists()
+
+
 def test_private_validator_keeps_malformed_manifest_diagnostics_sanitized(monkeypatch, tmp_path):
     validator = _private_validator_module()
     corpus = tmp_path / "controlled-corpus"

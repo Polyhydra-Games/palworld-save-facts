@@ -132,7 +132,12 @@ def analyze(
         parser_version=__version__,
         decoder_version=_decoder_version(),
     )
+    if any(warning.get("code") == "player-save-missing" for warning in snapshot_document["warnings"]):
+        raise ExtractionError("player-save-missing")
     assert_within_timeout()
+    after_normalization = source_manifest(snapshot)
+    if before != after_normalization:
+        raise ExtractionError("input-tree-changed-during-decode")
 
     raw_document = {"level": level, "players": players}
     raw_bytes = _canonical_bytes(raw_document)
