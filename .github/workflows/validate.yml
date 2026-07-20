@@ -73,3 +73,18 @@ jobs:
         run: |
           executable="dist/${{ matrix.asset }}"
           "$executable" --help
+          analysis="$(mktemp -d)"
+          "$executable" analyze \
+            --input tests/fixtures/snapshot \
+            --output "$analysis/output" \
+            > "$analysis/public-result.json"
+          python - "$analysis/output/snapshot.json" "$analysis/output/result.json" <<'PY'
+          import json
+          import sys
+
+          snapshot = json.load(open(sys.argv[1], encoding="utf-8"))
+          result = json.load(open(sys.argv[2], encoding="utf-8"))
+          assert snapshot["schemaVersion"] == "palworld-save-facts/v2"
+          assert snapshot["provenance"]["decoderVersion"] == "0.2.0"
+          assert result["snapshot"]["schemaVersion"] == "palworld-save-facts/v2"
+          PY
