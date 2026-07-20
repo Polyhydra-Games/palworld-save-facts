@@ -107,6 +107,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v4
         with:
+          # docker/build-push-action uploads a .dockerbuild record by default.
+          # Downloading every artifact tries to extract that record alongside
+          # executable assets and can fail publication after the OCI push.
+          pattern: palworld-save-facts-*
           path: dist
           merge-multiple: true
       - name: Verify release assets and create checksum manifest
