@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .extract import ExtractionError, SCHEMA_V1, extract_v1
+from .extract import ExtractionError, SCHEMA_V1, extract_v1, player_lookup_key
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -28,7 +28,7 @@ def _player_saves(snapshot: Path) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for path in directory.iterdir():
         if path.is_file() and path.suffix.casefold() in {".sav", ".json"}:
-            result[path.stem.casefold()] = _load(path)
+            result[player_lookup_key(path.stem)] = _load(path)
     return result
 
 

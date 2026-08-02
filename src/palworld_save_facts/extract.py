@@ -43,6 +43,11 @@ def _player_id(entry: dict[str, Any]) -> str:
     return str(_value(entry.get("key", {}).get("PlayerUId"), ""))
 
 
+def player_lookup_key(value: str) -> str:
+    """Match UUID spellings used by decoded keys and save filenames."""
+    return value.replace("-", "").casefold()
+
+
 def _guild_memberships(world: dict[str, Any]) -> tuple[int, dict[str, str]]:
     memberships: dict[str, str] = {}
     guilds = 0
@@ -67,6 +72,7 @@ def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], o
     if not isinstance(characters, list):
         raise ExtractionError("character-map-invalid")
     guild_count, memberships = _guild_memberships(world)
+    player_saves_by_key = {player_lookup_key(key): value for key, value in player_saves.items()}
     players: list[dict[str, Any]] = []
     pal_count = 0
     for entry in characters:
@@ -77,7 +83,7 @@ def extract_v1(level: dict[str, Any], player_saves: dict[str, dict[str, Any]], o
         native_id = _player_id(entry)
         if not native_id:
             raise ExtractionError("player-id-missing")
-        player_save = player_saves.get(native_id.casefold())
+        player_save = player_saves_by_key.get(player_lookup_key(native_id))
         if player_save is None:
             raise ExtractionError(f"player-save-missing:{native_id}")
         save_data = _save_data(player_save)

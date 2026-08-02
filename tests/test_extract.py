@@ -49,3 +49,25 @@ def test_cli_writes_one_json_document_from_a_decoded_fixture(capsys):
     assert output.err == ""
     assert document["schemaVersion"] == SCHEMA_V1
     assert document["players"][0]["nativeId"] == "player-a"
+
+
+def test_player_uuid_lookup_accepts_hyphenated_decoded_key_and_filename():
+    level = {
+        "properties": {"worldSaveData": {"value": {
+            "CharacterSaveParameterMap": {"value": [
+                {"key": {"PlayerUId": property("41b3cd76-0000-0000-0000-000000000000")},
+                 "value": {"RawData": {"value": {"object": {"SaveParameter": {"value": {
+                     "IsPlayer": property(True), "Level": property(9)}}}}}}},
+            ]},
+            "GroupSaveDataMap": {"value": []},
+            "BaseCampSaveData": {"value": []},
+        }}}}
+    player = {"properties": {"SaveData": {"value": {
+        "TechnologyPoint": property(0),
+        "UnlockedRecipeTechnologyNames": property({"values": []}),
+        "CompletedQuestArray": property({"values": []}),
+    }}}}
+
+    facts = extract_v1(level, {"41B3CD76000000000000000000000000": player}, datetime.now(timezone.utc))
+
+    assert facts["players"][0]["nativeId"] == "41b3cd76-0000-0000-0000-000000000000"
