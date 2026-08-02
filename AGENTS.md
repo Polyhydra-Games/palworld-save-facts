@@ -9,8 +9,8 @@ This file is the repo-local guide for coding agents working in this repository. 
 
 For DevOps, infrastructure, deployment, security, GitOps, and service work:
 
-1. GitHub is authoritative for Issues, PRs, CI, reviews, merges, releases, and delivery state. Hermes Kanban is the execution queue only.
-2. One GitHub Issue plus one active Hermes Kanban card should normally produce one PR directly to `main`.
+1. GitHub is authoritative for Issues, PRs, CI, reviews, merges, releases, and delivery state, and is the execution queue.
+2. One GitHub Issue should normally produce one PR directly to `main`.
 3. Before branch work or a PR, fetch `origin/main` and reconcile against the current remote default branch. Do not build branch-on-branch PR stacks unless an explicit integration owner and final target are stated.
 4. Do not merge, deploy, close issues, rotate secrets, or claim production success unless the task explicitly authorizes it and verification evidence exists.
 5. If branches diverge, stop merging the stack. Create one integration branch from current `origin/main`, resolve semantic conflicts deliberately, run tests, and open one replacement PR to `main`.
