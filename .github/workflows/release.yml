@@ -71,7 +71,7 @@ jobs:
             asset: palworld-save-facts-linux-arm64
             archflags: ""
             cxxflags: ""
-          - os: macos-14
+          - os: macos-15
             asset: palworld-save-facts-macos-arm64
             archflags: "-arch arm64"
             cxxflags: "-std=c++11"
