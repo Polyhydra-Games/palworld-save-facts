@@ -19,6 +19,27 @@ The release workflow may build these artifacts only from a protected tag or an
 explicit owner-approved dispatch. It must never upload test fixtures, private
 benchmark reports, `raw.json.zst`, normalized output, or decoder diagnostics.
 
+## Release workflow guards
+
+`.github/workflows/release.yml` is hardened as follows; `tests/test_release_workflow.py`
+and `scripts/tests/` enforce these rules:
+
+- The workflow default is `contents: read`; each job declares only what it
+  needs (`oci` adds `packages: write`; `publish` adds `contents: write`,
+  `attestations: write`, `id-token: write`).
+- Every `actions/checkout` sets `persist-credentials: false`, and every
+  third-party action is pinned by full commit SHA with a trailing version comment.
+- Releases are immutable. `verify_tag` fails if a GitHub release for the tag
+  already exists, and `oci` fails if `ghcr.io/<owner>/palworld-save-facts:<tag>`
+  already exists. A probe error fails closed. The only override is the
+  `workflow_dispatch` boolean input `allow_overwrite` (default `false`); tag
+  pushes can never overwrite. Use it only for an owner-approved re-release or
+  to resume a run whose OCI push succeeded but whose publish failed, and
+  record why in the release issue.
+- Immediately before the GitHub release step, `publish` re-resolves the tag
+  with `git ls-remote` and fails if it no longer points at the commit
+  `verify_tag` verified (`scripts/recheck-release-tag.sh`).
+
 ## Private qualification limits
 
 Before promotion, an operator runs `scripts/private_benchmark.py` on the
