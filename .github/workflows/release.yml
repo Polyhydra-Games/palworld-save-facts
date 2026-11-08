@@ -7,14 +7,16 @@ on:
         description: Release tag (for example v0.1.0)
         required: true
         type: string
+      allow_overwrite:
+        description: Allow re-releasing a tag that already has a GitHub release or GHCR image (default false)
+        required: false
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  packages: write
-  attestations: write
-  id-token: write
+  contents: read
 
 concurrency:
   # Manual dispatches run from a branch ref, while tag pushes run from the
@@ -32,8 +34,9 @@ jobs:
       tag: ${{ steps.verify.outputs.tag }}
       sha: ${{ steps.verify.outputs.sha }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Fetch tags and main
         run: |
@@ -47,9 +50,18 @@ jobs:
           EXPECTED_SHA: ${{ github.event_name == 'push' && github.sha || '' }}
           MAIN_REF: origin/main
         run: bash scripts/verify-release-tag.sh
+      - name: Refuse to overwrite an existing GitHub release
+        env:
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ALLOW_OVERWRITE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_overwrite || false }}
+        run: bash scripts/check-no-overwrite.sh release
   prepare_oci:
     needs: [verify_tag]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       owner: ${{ steps.owner.outputs.value }}
     steps:
@@ -80,12 +92,15 @@ jobs:
             archflags: ""
             cxxflags: ""
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ needs.verify_tag.outputs.sha }}
           submodules: recursive
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
       - name: Build executable
@@ -100,28 +115,45 @@ jobs:
           python -m pip install 'orjson>=3.11.8'
           python -m pip install '.[build]'
           pyinstaller --onefile --name '${{ matrix.asset }}' --collect-all palsav --collect-all palooz src/palworld_save_facts/__main__.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
   oci:
     needs: [verify_tag, build, prepare_oci]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       digest: ${{ steps.image.outputs.digest }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ needs.verify_tag.outputs.sha }}
           submodules: recursive
-      - uses: docker/login-action@v3
+      - name: Check out guard scripts from the workflow revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          path: .release-guards
+          sparse-checkout: scripts
+          persist-credentials: false
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@v3
+      - name: Refuse to overwrite an existing GHCR image tag
+        env:
+          RELEASE_TAG: ${{ needs.verify_tag.outputs.tag }}
+          IMAGE: ghcr.io/${{ needs.prepare_oci.outputs.owner }}/palworld-save-facts
+          ALLOW_OVERWRITE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_overwrite || false }}
+        run: bash .release-guards/scripts/check-no-overwrite.sh image
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - id: image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: true
@@ -130,11 +162,23 @@ jobs:
   publish:
     needs: [verify_tag, build, oci]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           ref: ${{ needs.verify_tag.outputs.sha }}
-      - uses: actions/download-artifact@v4
+      - name: Check out guard scripts from the workflow revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          path: .release-guards
+          sparse-checkout: scripts
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           # docker/build-push-action uploads a .dockerbuild record by default.
           # Downloading every artifact tries to extract that record alongside
@@ -186,15 +230,21 @@ jobs:
           (dist / "release-manifest.json").write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
           (dist / "license-inventory.json").write_text(json.dumps({"project": "GPL-3.0-or-later", "decoder": "GPL-3.0-or-later"}, sort_keys=True, separators=(",", ":")) + "\n")
           PY
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: spdx-json
           output-file: dist/SBOM.spdx.json
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: dist/release-manifest.json
-      - uses: softprops/action-gh-release@v2
+      - name: Re-check release tag has not moved since verification
+        env:
+          RELEASE_TAG: ${{ needs.verify_tag.outputs.tag }}
+          VERIFIED_SHA: ${{ needs.verify_tag.outputs.sha }}
+          REMOTE: https://github.com/${{ github.repository }}.git
+        run: bash .release-guards/scripts/recheck-release-tag.sh
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ needs.verify_tag.outputs.tag }}
           target_commitish: ${{ needs.verify_tag.outputs.sha }}
