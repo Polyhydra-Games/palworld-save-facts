@@ -84,3 +84,27 @@ def test_no_inline_expressions_in_run_scripts_for_untrusted_inputs():
     for name, step in steps():
         run = step.get("run", "")
         assert "inputs." not in run and "github.event.inputs" not in run, name
+
+
+def test_guards_run_from_workflow_revision_checkout():
+    jobs = load()["jobs"]
+    for job, script in (("oci", "check-no-overwrite.sh"), ("publish", "recheck-release-tag.sh")):
+        job_steps = jobs[job]["steps"]
+        guard = [i for i, s in enumerate(job_steps)
+                 if s.get("uses", "").startswith("actions/checkout@")
+                 and s["with"].get("path") == ".release-guards"]
+        assert len(guard) == 1, job
+        co = job_steps[guard[0]]["with"]
+        assert co["ref"] == "${{ github.sha }}"
+        assert co["persist-credentials"] is False
+        run_idx = next(i for i, s in enumerate(job_steps) if script in s.get("run", ""))
+        assert guard[0] < run_idx
+        cmd = job_steps[run_idx]["run"]
+        assert f".release-guards/scripts/{script}" in cmd
+        assert "bash scripts/" not in cmd
+        # the verified-source checkout still builds from the verified tag
+        src = [s for s in job_steps if s.get("uses", "").startswith("actions/checkout@")
+               and "path" not in s["with"]]
+        assert src and src[0]["with"]["ref"] == "${{ needs.verify_tag.outputs.sha }}"
+    env = next(s for s in jobs["publish"]["steps"] if "recheck-release-tag.sh" in s.get("run", ""))["env"]
+    assert env["REMOTE"].startswith("https://github.com/")

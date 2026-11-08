@@ -36,6 +36,9 @@ and `scripts/tests/` enforce these rules:
   pushes can never overwrite. Use it only for an owner-approved re-release or
   to resume a run whose OCI push succeeded but whose publish failed, and
   record why in the release issue.
+- Guard scripts run from a separate checkout of the workflow's own revision
+  (`.release-guards`), while builds and published assets come from the
+  verified tag, so re-releasing a tag that predates the guards still works.
 - Immediately before the GitHub release step, `publish` re-resolves the tag
   with `git ls-remote` and fails if it no longer points at the commit
   `verify_tag` verified (`scripts/recheck-release-tag.sh`).

@@ -67,5 +67,13 @@ check fail "lightweight tag moved" env RELEASE_TAG=v1.0.0 VERIFIED_SHA="$one" ba
 git tag -f -a v2.0.0 -m moved "$two" >/dev/null; git push -q --force origin refs/tags/v2.0.0
 check fail "annotated tag moved" env RELEASE_TAG=v2.0.0 VERIFIED_SHA="$one" bash "$rc"
 check ok   "moved tag matches new sha" env RELEASE_TAG=v2.0.0 VERIFIED_SHA="$two" bash "$rc"
+# --- guards run from a directory with no scripts/ tree and no git remote
+bare="$work/elsewhere"; mkdir "$bare"; (cd "$bare" && git init -q .)
+cd "$bare"
+[[ ! -e scripts ]] || { echo "FAIL setup"; fails=$((fails+1)); }
+STUB_MODE=missing check ok "no-tree cwd: release absent" env RELEASE_TAG=v1.0.0 bash "$no" release
+STUB_MODE=exists  check fail "no-tree cwd: release exists" env RELEASE_TAG=v1.0.0 bash "$no" release
+check ok   "no-tree cwd: recheck via REMOTE url" env REMOTE="$remote" RELEASE_TAG=v2.0.0 VERIFIED_SHA="$two" bash "$rc"
+check fail "no-tree cwd: recheck mismatch" env REMOTE="$remote" RELEASE_TAG=v2.0.0 VERIFIED_SHA="$one" bash "$rc"
 [[ $fails -eq 0 ]] || { echo "$fails failure(s)"; exit 1; }
 echo "all release guard tests passed"
