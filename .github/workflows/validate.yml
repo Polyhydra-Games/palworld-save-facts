@@ -12,7 +12,24 @@ concurrency:
   group: palworld-save-facts-validate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  ACTIONLINT_VERSION: "1.7.12"
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+
 jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Lint workflows with actionlint
+        run: |
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          dir="$(mktemp -d)"
+          curl -fsSL -o "$dir/$tarball" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$tarball"
+          echo "${ACTIONLINT_SHA256}  $dir/$tarball" | sha256sum -c -
+          tar -xzf "$dir/$tarball" -C "$dir" actionlint
+          "$dir/actionlint" -color
   test:
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +61,7 @@ jobs:
             asset: palworld-save-facts-macos-arm64
             archflags: "-arch arm64"
             cxxflags: "-std=c++11"
+            macos_target: "14.0"
           - os: windows-latest
             asset: palworld-save-facts-windows-x64.exe
             archflags: ""
@@ -61,6 +79,9 @@ jobs:
         env:
           ARCHFLAGS: ${{ matrix.archflags }}
           CXXFLAGS: ${{ matrix.cxxflags }}
+          # Pins the minimum macOS of the shipped binary (macos-14 era floor);
+          # empty on non-macOS runners, where it is ignored.
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
         run: |
           python -m pip install --upgrade pip
           python -m pip install vendor/PalworldSaveTools/src/palsav/palooz

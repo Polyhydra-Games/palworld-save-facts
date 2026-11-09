@@ -108,3 +108,14 @@ def test_guards_run_from_workflow_revision_checkout():
         assert src and src[0]["with"]["ref"] == "${{ needs.verify_tag.outputs.sha }}"
     env = next(s for s in jobs["publish"]["steps"] if "recheck-release-tag.sh" in s.get("run", ""))["env"]
     assert env["REMOTE"].startswith("https://github.com/")
+
+
+def test_macos_build_pins_deployment_target():
+    build = load()["jobs"]["build"]
+    macos = [m for m in build["strategy"]["matrix"]["include"] if m["os"].startswith("macos")]
+    assert macos and all(m["macos_target"] == "14.0" for m in macos)
+    step = next(s for s in build["steps"] if s.get("name") == "Build executable")
+    assert step["env"]["MACOSX_DEPLOYMENT_TARGET"] == "${{ matrix.macos_target }}"
+    for m in build["strategy"]["matrix"]["include"]:
+        if not m["os"].startswith("macos"):
+            assert not m.get("macos_target")

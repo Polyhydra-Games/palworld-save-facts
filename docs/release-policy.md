@@ -19,6 +19,16 @@ The release workflow may build these artifacts only from a protected tag or an
 explicit owner-approved dispatch. It must never upload test fixtures, private
 benchmark reports, `raw.json.zst`, normalized output, or decoder diagnostics.
 
+## Minimum macOS
+
+The macOS arm64 executable is built on `macos-15` with
+`MACOSX_DEPLOYMENT_TARGET=14.0` (matrix field `macos_target` in `release.yml`
+and `validate.yml`), so the minimum supported macOS is 14.0, matching the
+earlier `macos-14` build. PyInstaller binaries otherwise inherit the runner's
+target. The actual `LC_BUILD_VERSION` minos of a built binary has not been
+inspected yet; confirm it on a release candidate (for example with
+`otool -l <binary>`) before relying on this.
+
 ## Release workflow guards
 
 `.github/workflows/release.yml` is hardened as follows; `tests/test_release_workflow.py`
@@ -39,6 +49,21 @@ and `scripts/tests/` enforce these rules:
 - Guard scripts run from a separate checkout of the workflow's own revision
   (`.release-guards`), while builds and published assets come from the
   verified tag, so re-releasing a tag that predates the guards still works.
+- A tag is only releasable if it is an ancestor of `origin/main`.
+  `verify_tag` runs `scripts/verify-release-tag.sh`, which requires the tag to
+  match `vX.Y.Z[-prerelease]` (at most 128 characters), to exist as
+  `refs/tags/<tag>`, and to satisfy `git merge-base --is-ancestor <tag commit>
+  origin/main`. For tag pushes the tag must also still resolve to the pushed
+  commit (`EXPECTED_SHA`). Any failure stops the run before anything is built.
+  The tag input is read only through environment variables, never interpolated
+  into scripts.
+- Verified-SHA checkout: `verify_tag` outputs the resolved commit SHA, and the
+  `build`, `oci`, and `publish` jobs check out exactly that SHA (not the tag
+  name or branch), and `softprops/action-gh-release` uses it as
+  `target_commitish`, so every artifact comes from the commit that passed the
+  ancestor check.
+- Workflows are linted with actionlint (pinned release, checksum-verified) in
+  the `Validate` workflow on every pull request.
 - Immediately before the GitHub release step, `publish` re-resolves the tag
   with `git ls-remote` and fails if it no longer points at the commit
   `verify_tag` verified (`scripts/recheck-release-tag.sh`).
