@@ -18,6 +18,9 @@ Download the self-contained archive for your platform from
 verify its `SHA256SUMS.txt` entry, extract it, and put `palworld-save-facts` on
 your `PATH`.
 
+The macOS arm64 executable is built with `MACOSX_DEPLOYMENT_TARGET=14.0`, so
+the minimum supported macOS is 14 (Sonoma) on Apple silicon.
+
 ```sh
 palworld-save-facts --input /srv/palworld/snapshots/2026-07-17T20-00-00Z \
   --schema palworld-save-facts/v1 > facts.json
