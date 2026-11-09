@@ -7,14 +7,16 @@ on:
         description: Release tag (for example v0.1.0)
         required: true
         type: string
+      allow_overwrite:
+        description: Allow re-releasing a tag that already has a GitHub release or GHCR image (default false)
+        required: false
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  packages: write
-  attestations: write
-  id-token: write
+  contents: read
 
 concurrency:
   # Manual dispatches run from a branch ref, while tag pushes run from the
@@ -24,8 +26,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prepare_oci:
+  verify_tag:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.verify.outputs.tag }}
+      sha: ${{ steps.verify.outputs.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fetch tags and main
+        run: |
+          git fetch --force --tags origin
+          git fetch origin main:refs/remotes/origin/main
+      - id: verify
+        env:
+          # Untrusted for workflow_dispatch; only ever read via env.
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          # For tag pushes the tag must still resolve to the pushed commit.
+          EXPECTED_SHA: ${{ github.event_name == 'push' && github.sha || '' }}
+          MAIN_REF: origin/main
+        run: bash scripts/verify-release-tag.sh
+      - name: Refuse to overwrite an existing GitHub release
+        env:
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ALLOW_OVERWRITE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_overwrite || false }}
+        run: bash scripts/check-no-overwrite.sh release
+  prepare_oci:
+    needs: [verify_tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       owner: ${{ steps.owner.outputs.value }}
     steps:
@@ -34,6 +70,7 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: echo "value=${OWNER,,}" >> "$GITHUB_OUTPUT"
   build:
+    needs: [verify_tag]
     strategy:
       fail-fast: false
       matrix:
@@ -46,20 +83,25 @@ jobs:
             asset: palworld-save-facts-linux-arm64
             archflags: ""
             cxxflags: ""
-          - os: macos-14
+          - os: macos-15
             asset: palworld-save-facts-macos-arm64
             archflags: "-arch arm64"
             cxxflags: "-std=c++11"
+            macos_target: "14.0"
           - os: windows-latest
             asset: palworld-save-facts-windows-x64.exe
             archflags: ""
             cxxflags: ""
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
+          ref: ${{ needs.verify_tag.outputs.sha }}
           submodules: recursive
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
       - name: Build executable
@@ -67,6 +109,9 @@ jobs:
         env:
           ARCHFLAGS: ${{ matrix.archflags }}
           CXXFLAGS: ${{ matrix.cxxflags }}
+          # Pins the minimum macOS of the shipped binary (macos-14 era floor);
+          # empty on non-macOS runners, where it is ignored.
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
         run: |
           python -m pip install --upgrade pip
           python -m pip install vendor/PalworldSaveTools/src/palsav/palooz
@@ -74,38 +119,70 @@ jobs:
           python -m pip install 'orjson>=3.11.8'
           python -m pip install '.[build]'
           pyinstaller --onefile --name '${{ matrix.asset }}' --collect-all palsav --collect-all palooz src/palworld_save_facts/__main__.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
   oci:
-    needs: [build, prepare_oci]
+    needs: [verify_tag, build, prepare_oci]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       digest: ${{ steps.image.outputs.digest }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
+          ref: ${{ needs.verify_tag.outputs.sha }}
           submodules: recursive
-      - uses: docker/login-action@v3
+      - name: Check out guard scripts from the workflow revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          path: .release-guards
+          sparse-checkout: scripts
+          persist-credentials: false
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@v3
+      - name: Refuse to overwrite an existing GHCR image tag
+        env:
+          RELEASE_TAG: ${{ needs.verify_tag.outputs.tag }}
+          IMAGE: ghcr.io/${{ needs.prepare_oci.outputs.owner }}/palworld-save-facts
+          ALLOW_OVERWRITE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_overwrite || false }}
+        run: bash .release-guards/scripts/check-no-overwrite.sh image
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - id: image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ needs.prepare_oci.outputs.owner }}/palworld-save-facts:${{ inputs.tag || github.ref_name }}
+          tags: ghcr.io/${{ needs.prepare_oci.outputs.owner }}/palworld-save-facts:${{ needs.verify_tag.outputs.tag }}
   publish:
-    needs: [build, oci]
+    needs: [verify_tag, build, oci]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ needs.verify_tag.outputs.sha }}
+      - name: Check out guard scripts from the workflow revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          path: .release-guards
+          sparse-checkout: scripts
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           # docker/build-push-action uploads a .dockerbuild record by default.
           # Downloading every artifact tries to extract that record alongside
@@ -130,7 +207,8 @@ jobs:
       - name: Generate release manifest and license inventory
         env:
           OCI_DIGEST: ${{ needs.oci.outputs.digest }}
-          TAG: ${{ inputs.tag || github.ref_name }}
+          TAG: ${{ needs.verify_tag.outputs.tag }}
+          SOURCE_SHA: ${{ needs.verify_tag.outputs.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
@@ -146,7 +224,7 @@ jobs:
           manifest = {
               "schemaVersion": "palworld-save-facts/release-manifest/v1",
               "tag": os.environ["TAG"],
-              "sourceSha": os.environ["GITHUB_SHA"],
+              "sourceSha": os.environ["SOURCE_SHA"],
               "decoderSha": subprocess.check_output(["git", "rev-parse", "HEAD:vendor/PalworldSaveTools"], text=True).strip(),
               "ociDigest": os.environ["OCI_DIGEST"],
               "compatibility": {"v1": "supported", "v2": "supported"},
@@ -156,17 +234,24 @@ jobs:
           (dist / "release-manifest.json").write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
           (dist / "license-inventory.json").write_text(json.dumps({"project": "GPL-3.0-or-later", "decoder": "GPL-3.0-or-later"}, sort_keys=True, separators=(",", ":")) + "\n")
           PY
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: spdx-json
           output-file: dist/SBOM.spdx.json
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: dist/release-manifest.json
-      - uses: softprops/action-gh-release@v2
+      - name: Re-check release tag has not moved since verification
+        env:
+          RELEASE_TAG: ${{ needs.verify_tag.outputs.tag }}
+          VERIFIED_SHA: ${{ needs.verify_tag.outputs.sha }}
+          REMOTE: https://github.com/${{ github.repository }}.git
+        run: bash .release-guards/scripts/recheck-release-tag.sh
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
+          tag_name: ${{ needs.verify_tag.outputs.tag }}
+          target_commitish: ${{ needs.verify_tag.outputs.sha }}
           generate_release_notes: true
           files: |
             dist/palworld-save-facts-linux-x64

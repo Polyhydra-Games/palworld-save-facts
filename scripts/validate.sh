@@ -11,3 +11,5 @@ fi
 
 "$python_command" -m compileall -q src scripts
 "$python_command" -m pytest -q
+bash "$repo_root/scripts/tests/test_verify_release_tag.sh"
+bash "$repo_root/scripts/tests/test_release_guards.sh"
